@@ -75,7 +75,9 @@ export function parseCharacterizationData(text: string): CharacterizationData {
     });
   }
 
-  return { descriptor: metadata(lines, 'FILE_DESCRIPTOR'), patches };
+  // O PSO Coated v3 usa FILE_DESCRIPTOR; o ISO Coated v2 usa DESCRIPTOR.
+  const descriptor = metadata(lines, 'FILE_DESCRIPTOR') ?? metadata(lines, 'DESCRIPTOR');
+  return { descriptor, patches };
 }
 
 /** Extrai e interpreta a tag `targ` de um perfil, se existir. */

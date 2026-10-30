@@ -81,8 +81,8 @@ dependem de perfil são ignorados (os demais continuam rodando).
 - [x] **Fase 1** — Setup e fundamentação
 - [x] **Fase 2** — Núcleo matemático colorimétrico (54/54 testes passando)
 - [ ] **Fase 3** — Integração do motor de cor (lcms2-wasm): implementada e
-      testada em Node com o PSO Coated v3; faltam verificar no navegador e
-      em Web Worker e repetir com o ISOcoated_v2
+      testada em Node com PSO Coated v3 e ISO Coated v2; faltam verificar
+      no navegador e em Web Worker
 - [ ] **Fase 4** — Extração de cor do PDF (esqueleto pronto, funções lançam
       `Error` de "ainda não implementado" propositalmente — ver TODOs em
       `lib/pdf/extractImages.ts`)

@@ -196,11 +196,11 @@ Os cálculos usam amostras de 16 bits (`CMYK_16`, `Lab_16`). A quantização do 
 
 ### 7.3 Perfil testado e dados de caracterização
 
-O perfil usado foi o **PSO Coated v3**, da ECI: ICC v2.4, classe impressora (`prtr`), dados CMYK, espaço de conexão Lab, com as tabelas A2B0 a A2B2 e B2A0 a B2A2. A tag `targ` do próprio perfil traz os dados de caracterização **FOGRA51** (alvo ISO 12642-2, 1617 patches com CMYK, XYZ e Lab, medição D50, 2°, geometria 45/0, M1, base branca, papel premium coated). Esses dados serviram de referência sem exigir arquivo externo.
+O perfil principal usado foi o **PSO Coated v3**, da ECI: ICC v2.4, classe impressora (`prtr`), dados CMYK, espaço de conexão Lab, com as tabelas A2B0 a A2B2 e B2A0 a B2A2. A tag `targ` do próprio perfil traz os dados de caracterização **FOGRA51** (alvo ISO 12642-2, 1617 patches com CMYK, XYZ e Lab, medição D50, 2°, geometria 45/0, M1, base branca, papel premium coated). Esses dados serviram de referência sem exigir arquivo externo.
 
 ### 7.4 Resultados
 
-Todos os valores em ΔE00. Média, percentil 95 e máximo sobre os 1617 patches.
+Todos os valores em ΔE00. Média, percentil 95 e máximo sobre os 1617 patches. A tabela abaixo é do **PSO Coated v3 (FOGRA51)**; os resultados do ISO Coated v2 estão na seção 7.4.1.
 
 | Verificação | Média | p95 | Máx |
 |---|---|---|---|
@@ -218,6 +218,19 @@ Outras conferências:
 
 Os limites dos testes automatizados são guarda contra regressão, definidos com folga sobre estes valores. Não são tolerâncias da norma.
 
+#### 7.4.1 ISO Coated v2 (ECI), caracterização FOGRA39
+
+Mesmo procedimento, com o `ISOcoated_v2_eci.icc` (descrição "ISO Coated v2 (ECI)"). A tag `targ` traz 1617 patches, descritor `FOGRA39L`, ISO 12642-2, medição D50, 2°, geometria 45/0, sem filtro de polarização, base branca, conforme ISO 13655. No arquivo deste perfil o descritor está na chave `DESCRIPTOR` (no PSO Coated v3 é `FILE_DESCRIPTOR`); o leitor aceita as duas.
+
+| Verificação | Média | p95 | Máx |
+|---|---|---|---|
+| A2B com intent **absoluto** contra o Lab de caracterização | 0,06 | 0,12 | 0,58 |
+| A2B com intent relativo contra o mesmo Lab | 2,66 | 3,30 | 3,52 |
+| Round-trip Lab → CMYK → Lab, intent relativo | 0,29 | 1,19 | 4,43 |
+| Round-trip Lab → CMYK → Lab, intent absoluto | 0,34 | 1,18 | 3,58 |
+
+Papel e sólidos C, M, Y e K em intent absoluto coincidem com a tabela em até ΔE00 0,09. Os dois perfis levam à mesma conclusão: só o intent absoluto reproduz os dados de caracterização, e o round-trip tem piso de erro de até cerca de 4 ΔE00 nos casos extremos.
+
 ### 7.5 Conclusões e decisões
 
 1. **O rendering intent muda o resultado.** Os dados de caracterização são Lab absoluto, e só o intent absoluto os reproduz. Comparar contra alvos da norma exige intent absoluto. Para cores derivadas de sRGB, em que o branco é L\* = 100, o intent relativo é o coerente. A escolha para o laudo é uma **decisão de projeto em aberto** e deve constar na metodologia.
@@ -227,7 +240,7 @@ Os limites dos testes automatizados são guarda contra regressão, definidos com
 ### 7.6 Limites que continuam valendo
 
 - A referência dos testes é o dado do **criador do perfil**. Não é validação independente. A conferência com ArgyllCMS (`xicclu`) continua pendente.
-- Só o PSO Coated v3 foi testado. O ISOcoated_v2 (FOGRA39) está pendente.
+- Foram testados dois perfis (PSO Coated v3 e ISO Coated v2). Outras condições de impressão não foram avaliadas.
 - Os testes automatizados rodam em Node. O build de produção compila e empacota o `.wasm`, mas o carregamento **no navegador** e dentro de um **Web Worker** ainda não foi verificado. O teste provisório na tela (`ProfileSmokeTest`) serve para a verificação no navegador.
 - Só perfis CMYK de saída são aceitos. Perfil de monitor entra em fase posterior.
 
@@ -279,7 +292,7 @@ Os limites dos testes automatizados são guarda contra regressão, definidos com
 |---|---|---|
 | 1 | Setup e fundamentação | Concluída |
 | 2 | Núcleo matemático colorimétrico | Concluída (34 pares + pipeline validado, ver seção 6) |
-| 3 | Integração do lcms2-wasm e perfis ICC | Implementada e testada em Node com o PSO Coated v3 (seção 7). Pendentes: navegador, Web Worker e ISOcoated_v2 |
+| 3 | Integração do lcms2-wasm e perfis ICC | Implementada e testada em Node com PSO Coated v3 e ISO Coated v2 (seção 7). Pendentes: navegador e Web Worker |
 | 4 | Extração de cor do PDF (pdf.js + clusterização) | Pendente |
 | 5 | Web Workers e medição de desempenho | Pendente |
 | 6 | Fluxo A: round-trip e laudo | Pendente |
@@ -291,7 +304,7 @@ Os limites dos testes automatizados são guarda contra regressão, definidos com
 1. ~~Completar os 34 pares de Sharma et al. nos testes.~~ Feito.
 2. ~~Adicionar testes de pipeline com cores sRGB de Lab conhecido.~~ Feito.
 3. Testar `kmeansLab` (determinismo, pesos somando 1, casos com poucos pontos).
-4. ~~Obter os perfis `.icc` (ECI) e verificar a licença.~~ PSO Coated v3 obtido e licença lida (não redistribuir). **ISOcoated_v2 pendente.**
+4. ~~Obter os perfis `.icc` (ECI) e verificar a licença.~~ PSO Coated v3 obtido e licença lida (não redistribuir). ISOcoated_v2 obtido e testado.
 5. Definir rendering intent, compensação de ponto preto e limiar de tolerância (seção 7.5, L9 e L10).
 6. Escolher a referência externa de validação (ArgyllCMS, `xicclu`) e registrar os valores comparados. As referências atuais vêm do próprio perfil.
 7. ~~Alinhar a definição do branco D50 entre o núcleo e o lcms2 (L8).~~ Feito: ΔE00 máximo de 0,016.
@@ -307,7 +320,7 @@ Requisitos: Node.js (versão LTS) e VS Code.
 cd colorproof        # a pasta que contém package.json
 npm install
 npm run dev          # http://localhost:5173
-npm test             # 86 testes com o perfil PSO Coated v3 local; sem ele, 77 passam e 9 são ignorados
+npm test             # 95 testes com os dois perfis locais; sem eles, 77 passam e 18 são ignorados
 ```
 
 **Perfis ICC.** Baixe `pso-coated_v3.zip` e `eci_offset_2009.zip` em https://eci.org/doku.php_id=en:downloads.html (seção *ICC profiles from ECI*), extraia e coloque `PSOcoated_v3.icc` e `ISOcoated_v2_eci.icc` em `public/profiles/`. Os `.icc` são ignorados pelo Git por causa da licença da ECI (seção 7.5). Sem os arquivos, os testes que dependem deles são ignorados.
