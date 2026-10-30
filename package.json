@@ -12,9 +12,10 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "lcms-wasm": "^1.0.5",
+    "pdfjs-dist": "^4.7.76",
     "react": "^19.2.8",
-    "react-dom": "^19.2.8",
-    "pdfjs-dist": "^4.7.76"
+    "react-dom": "^19.2.8"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",

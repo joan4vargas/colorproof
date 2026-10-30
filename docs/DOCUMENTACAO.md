@@ -68,12 +68,12 @@ Laudo: ΔE00 (CIEDE2000) vs. tolerância adotada
 | API do navegador | Web Workers + Transferable Objects | Cálculo fora da thread principal, sem cópia de buffers |
 | API do navegador | File API / ArrayBuffer / TypedArrays | Leitura local de PDF e perfis ICC |
 | Terceiros | `pdfjs-dist` | Estrutura do PDF (páginas, imagens, Output Intent) |
-| Terceiros | lcms2 (WASM) | Motor de cor (a integrar na Fase 3) |
+| Terceiros | `lcms-wasm` 1.0.x (Little CMS em WASM, licença MIT) | Motor de cor: abre perfis ICC e converte CMYK e Lab pelas tabelas A2B e B2A |
 | Testes | Vitest | Validação numérica do núcleo |
 | Desenvolvimento | Node.js, VS Code | Apenas tooling |
 | Execução | Navegador (client-side) | Runtime final |
 
-Versões instaladas (conforme `package.json`): React 19, Vite 8, TypeScript 6, Vitest 5, pdfjs-dist 4.x.
+Versões instaladas (conforme `package.json`): React 19, Vite 8, TypeScript 6, Vitest 5, pdfjs-dist 4.x, lcms-wasm 1.0.x.
 
 ---
 
@@ -85,7 +85,12 @@ Versões instaladas (conforme `package.json`): React 19, Vite 8, TypeScript 6, V
 | `src/core/colorimetry.ts` | `rgbToXyzD65`, `adaptBradford`, `xyzToLab`, `rgbToLabD50`, `deltaE2000` | Pronto e testado (dataset completo de 34 pares) |
 | `src/core/__tests__/colorimetry.test.ts` | 54 testes (ver seção 6) | Passando |
 | `src/lib/sampling/kmeans.ts` | `kmeansLab(points, k, maxIterations)` com inicialização por amostragem espaçada | Implementado, **sem testes** |
-| `src/lib/icc/colorEngine.ts` | Interfaces (`ColorEngine`, `IccProfileHandle`) e `TODO` da Fase 3 | Esqueleto |
+| `src/lib/icc/colorEngine.ts` | `createColorEngine`, `loadProfile`, `cmykToLab`, `labToCmyk`, `roundTripLab`, `rgbToDeviceCmyk`, `srgbToLab` (ver seção 7) | Implementado e testado em Node |
+| `src/lib/icc/iccTags.ts` | Leitura do cabeçalho e das tags de texto de um perfil ICC | Implementado e testado |
+| `src/lib/icc/characterization.ts` | Leitura dos dados de caracterização (CGATS) embutidos no perfil (tag `targ`) | Implementado e testado |
+| `src/lib/icc/__tests__/` | 32 testes: 9 do leitor ICC, do CGATS e da codificação de 16 bits (sem arquivo externo); 13 de sRGB contra o núcleo; 9 do perfil PSO Coated v3 (ignorados se o `.icc` não estiver na máquina); 1 de arquivo inválido | Passando |
+| `src/types/lcms-wasm.d.ts` | Declaração de tipos do subconjunto usado do `lcms-wasm` (o pacote não publica tipos) | Pronto |
+| `src/components/ProfileSmokeTest.tsx` | Teste provisório no navegador: escolhe um `.icc` e mostra papel e sólidos em Lab | Provisório (substituído na Fase 8) |
 | `src/lib/pdf/extractImages.ts` | `extractImagesFromPdf`, `extractOutputIntentProfile` com `TODO` da Fase 4 | Esqueleto |
 | `src/App.tsx` | Placeholder que lista o status das fases | Provisório |
 
@@ -164,7 +169,71 @@ Para repetir: `npm test`, na pasta que contém o `package.json`. A saída do ter
 
 ---
 
-## 7. Limitações e riscos conhecidos
+## 7. Fase 3: motor de cor (lcms-wasm)
+
+### 7.1 Escolha do pacote
+
+Foi escolhido o `lcms-wasm` (Little CMS compilado para WASM, licença MIT, assim como o Little CMS embutido). Funciona em navegador, Node.js e Web Workers e expõe a API do lcms2 de forma direta (`cmsOpenProfileFromMem`, `cmsCreateTransform`, `cmsDoTransform`). Alternativas consideradas:
+
+- **jsColorEngine:** motor ICC em JavaScript que declara ser mais rápido que o lcms-wasm. Não é o lcms2, e a justificativa do projeto é usar o CMM de referência da indústria. A afirmação de desempenho é do próprio projeto e não foi verificada aqui.
+- **node-lcms:** envolve o utilitário `transicc` e exige o LittleCMS instalado na máquina. Só funciona em Node.
+
+Riscos assumidos: é um pacote pequeno, com um mantenedor, o que deve ser registrado como risco de dependência. Ele não publica tipos TypeScript (por isso existe `src/types/lcms-wasm.d.ts`). O wrapper só aceita amostras de 8 bits, 16 bits ou `Float32`, e o projeto usa 16 bits. No Vite, o arquivo `.wasm` precisa ser localizado com `import ... from 'lcms-wasm/dist/lcms.wasm?url'`.
+
+### 7.2 O que foi implementado
+
+| Função | Operação |
+|---|---|
+| `createColorEngine({ wasmUrl })` | Instancia o WASM. Em Node, `wasmUrl` é omitido. |
+| `engine.loadProfile(bytes)` | Valida o arquivo (cabeçalho ICC, espaço CMYK) e abre o perfil no lcms2. |
+| `profile.cmykToLab(cmyk, intent)` | CMYK (%) para Lab, pela tabela **A2B** |
+| `profile.labToCmyk(lab, intent)` | Lab para CMYK (%), pela tabela **B2A** |
+| `profile.roundTripLab(lab, intent)` | Lab → CMYK (B2A) → Lab (A2B), o round-trip do Fluxo A |
+| `profile.rgbToDeviceCmyk(rgb, intent)` | sRGB para CMYK (%), para soft proofing |
+| `engine.srgbToLab(rgb)` | sRGB para Lab D50 pelo lcms2, para conferir o núcleo (`src/core`) |
+
+Os cálculos usam amostras de 16 bits (`CMYK_16`, `Lab_16`). A quantização do Lab de 16 bits é de cerca de 0,0015 em L\* e 0,0039 em a\* e b\*. A compensação de ponto preto está desligada (`flags = 0`). O rendering intent é parâmetro explícito, com padrão `relative`.
+
+### 7.3 Perfil testado e dados de caracterização
+
+O perfil usado foi o **PSO Coated v3**, da ECI: ICC v2.4, classe impressora (`prtr`), dados CMYK, espaço de conexão Lab, com as tabelas A2B0 a A2B2 e B2A0 a B2A2. A tag `targ` do próprio perfil traz os dados de caracterização **FOGRA51** (alvo ISO 12642-2, 1617 patches com CMYK, XYZ e Lab, medição D50, 2°, geometria 45/0, M1, base branca, papel premium coated). Esses dados serviram de referência sem exigir arquivo externo.
+
+### 7.4 Resultados
+
+Todos os valores em ΔE00. Média, percentil 95 e máximo sobre os 1617 patches.
+
+| Verificação | Média | p95 | Máx |
+|---|---|---|---|
+| A2B com intent **absoluto** contra o Lab de caracterização | 0,10 | 0,25 | 0,66 |
+| A2B com intent relativo contra o mesmo Lab (medição exploratória) | 3,45 | 5,42 | 6,72 |
+| A2B com intent perceptual contra o mesmo Lab (medição exploratória) | 4,18 | 7,60 | 13,36 |
+| Round-trip Lab → CMYK → Lab, intent relativo | 0,39 | 1,60 | 3,75 |
+| Round-trip Lab → CMYK → Lab, intent absoluto | 0,33 | 1,16 | 2,84 |
+
+Outras conferências:
+
+- **Papel e sólidos:** papel L\* 95,00, a\* 1,50, b\* −6,03 (tabela: 95, 1,5, −6). Ciano, magenta, amarelo e preto 100% coincidem com a tabela em até 0,02 em cada canal.
+- **sRGB: lcms2 contra o núcleo (`src/core`):** em 13 cores, a maior diferença foi ΔE00 = 0,016 (marrom). Isso **resolve a pendência L8**: a diferença entre o branco D50 do núcleo (Z = 82,521) e o do ICC (Z = 0,8249) não tem efeito perceptível.
+- **sRGB para CMYK (sanidade):** branco resulta em 0/0/0/0. Preto resulta em C 84,5, M 68,0, Y 51,5, K 96,0, cerca de 300% de tinta total, coerente com o limite do perfil.
+
+Os limites dos testes automatizados são guarda contra regressão, definidos com folga sobre estes valores. Não são tolerâncias da norma.
+
+### 7.5 Conclusões e decisões
+
+1. **O rendering intent muda o resultado.** Os dados de caracterização são Lab absoluto, e só o intent absoluto os reproduz. Comparar contra alvos da norma exige intent absoluto. Para cores derivadas de sRGB, em que o branco é L\* = 100, o intent relativo é o coerente. A escolha para o laudo é uma **decisão de projeto em aberto** e deve constar na metodologia.
+2. **O round-trip tem um piso de erro.** Mesmo para cores que o processo reproduz, a volta pela tabela B2A não devolve o Lab original exatamente, com desvios de até 3,8 ΔE00 nos patches de caracterização. O limiar de aprovação do laudo precisa ser pensado acima desse piso, ou o sistema reprova cores aceitáveis.
+3. **Licença do perfil.** O aviso de direitos embutido no perfil diz que ele pode ser usado, embutido e trocado sem restrição, mas não pode ser distribuído, vendido ou alterado sem permissão escrita da ECI. Por isso os arquivos `.icc` ficam fora do Git (`*.icc` no `.gitignore`). Se a aplicação publicada servir o perfil aos usuários, isso precisa de permissão da ECI, ou o perfil deve ser fornecido pelo usuário.
+
+### 7.6 Limites que continuam valendo
+
+- A referência dos testes é o dado do **criador do perfil**. Não é validação independente. A conferência com ArgyllCMS (`xicclu`) continua pendente.
+- Só o PSO Coated v3 foi testado. O ISOcoated_v2 (FOGRA39) está pendente.
+- Os testes automatizados rodam em Node. O build de produção compila e empacota o `.wasm`, mas o carregamento **no navegador** e dentro de um **Web Worker** ainda não foi verificado. O teste provisório na tela (`ProfileSmokeTest`) serve para a verificação no navegador.
+- Só perfis CMYK de saída são aceitos. Perfil de monitor entra em fase posterior.
+
+---
+
+## 8. Limitações e riscos conhecidos
 
 **L1. O Canvas altera os pixels antes de você lê-los.** Ao desenhar uma imagem com perfil ICC embutido, o navegador converte para o espaço do canvas (em geral sRGB) antes de `getImageData`. Não há flag padrão e confiável entre Chrome, Firefox e Safari para obter o dado cru. Consequência: o Canvas serve para exibição, mas não deve ser a fonte de verdade do laudo. Para o laudo, os valores devem vir do decoder (imagens extraídas do PDF) ou da cor declarada no próprio PDF.
 
@@ -180,11 +249,19 @@ Para repetir: `npm test`, na pasta que contém o `package.json`. A saída do ter
 
 **L7. Qualidade do k-means.** A inicialização é por amostragem espaçada. Se os clusters ficarem instáveis, a alternativa documentada no código é k-means++.
 
-**L8. Definição do branco D50.** O núcleo usa Z = 82,521 e o ICC define o D50 do PCS com Z = 0,8249 (4 casas). Sem alinhar as duas definições, o Lab calculado pelo núcleo e o Lab devolvido pelo lcms2 podem diferir por um desvio sistemático pequeno que não tem relação com a cor em si (ver 6.1).
+**L8. Definição do branco D50.** O núcleo usa Z = 82,521 e o ICC define o D50 do PCS com Z = 0,8249 (4 casas). Sem alinhar as duas definições, o Lab calculado pelo núcleo e o Lab devolvido pelo lcms2 podem diferir por um desvio sistemático pequeno que não tem relação com a cor em si (ver 6.1). **Resolvido na Fase 3:** a maior diferença medida entre o lcms2 e o núcleo foi ΔE00 = 0,016 (seção 7.4).
+
+**L9. Piso de erro do round-trip.** Lab → CMYK → Lab não é idêntico nem para cores dentro do gamut: nos patches de caracterização do PSO Coated v3, a média ficou em 0,3 a 0,4 ΔE00 e o máximo em 2,8 a 3,8 (seção 7.4). O limiar do laudo deve considerar isso.
+
+**L10. Rendering intent e ponto preto.** O intent muda o resultado de forma material (seção 7.4). Intent e compensação de ponto preto ainda precisam ser definidos para o laudo.
+
+**L11. Licença dos perfis ECI.** Os `.icc` não podem ser redistribuídos sem permissão escrita da ECI (seção 7.5). Não os coloque no repositório.
+
+**L12. Dependência do `lcms-wasm`.** Pacote pequeno, de um mantenedor, sem tipos TypeScript publicados. Risco registrado (seção 7.1).
 
 ---
 
-## 8. Correções em relação ao que foi dito durante o planejamento
+## 9. Correções em relação ao que foi dito durante o planejamento
 
 | Item | Dito antes | Correto |
 |---|---|---|
@@ -196,13 +273,13 @@ Para repetir: `npm test`, na pasta que contém o `package.json`. A saída do ter
 
 ---
 
-## 9. Roteiro e status
+## 10. Roteiro e status
 
 | Fase | Descrição | Status |
 |---|---|---|
 | 1 | Setup e fundamentação | Concluída |
 | 2 | Núcleo matemático colorimétrico | Concluída (34 pares + pipeline validado, ver seção 6) |
-| 3 | Integração do lcms2-wasm e perfis ICC | A iniciar |
+| 3 | Integração do lcms2-wasm e perfis ICC | Implementada e testada em Node com o PSO Coated v3 (seção 7). Pendentes: navegador, Web Worker e ISOcoated_v2 |
 | 4 | Extração de cor do PDF (pdf.js + clusterização) | Pendente |
 | 5 | Web Workers e medição de desempenho | Pendente |
 | 6 | Fluxo A: round-trip e laudo | Pendente |
@@ -214,15 +291,15 @@ Para repetir: `npm test`, na pasta que contém o `package.json`. A saída do ter
 1. ~~Completar os 34 pares de Sharma et al. nos testes.~~ Feito.
 2. ~~Adicionar testes de pipeline com cores sRGB de Lab conhecido.~~ Feito.
 3. Testar `kmeansLab` (determinismo, pesos somando 1, casos com poucos pontos).
-4. Obter os perfis `.icc` (ECI) e verificar a licença de redistribuição antes de embuti-los.
-5. Definir rendering intent, compensação de ponto preto e limiar de tolerância.
-6. Escolher a referência externa de validação (ArgyllCMS, `xicclu`) e registrar os valores comparados.
-7. Alinhar a definição do branco D50 entre o núcleo e o lcms2 e registrá-la (L8).
+4. ~~Obter os perfis `.icc` (ECI) e verificar a licença.~~ PSO Coated v3 obtido e licença lida (não redistribuir). **ISOcoated_v2 pendente.**
+5. Definir rendering intent, compensação de ponto preto e limiar de tolerância (seção 7.5, L9 e L10).
+6. Escolher a referência externa de validação (ArgyllCMS, `xicclu`) e registrar os valores comparados. As referências atuais vêm do próprio perfil.
+7. ~~Alinhar a definição do branco D50 entre o núcleo e o lcms2 (L8).~~ Feito: ΔE00 máximo de 0,016.
 8. Ajustar o comentário da matriz sRGB em `colorimetry.ts` (6.1).
 
 ---
 
-## 10. Como executar
+## 11. Como executar
 
 Requisitos: Node.js (versão LTS) e VS Code.
 
@@ -230,20 +307,24 @@ Requisitos: Node.js (versão LTS) e VS Code.
 cd colorproof        # a pasta que contém package.json
 npm install
 npm run dev          # http://localhost:5173
-npm test             # 54 testes
+npm test             # 86 testes com o perfil PSO Coated v3 local; sem ele, 77 passam e 9 são ignorados
 ```
+
+**Perfis ICC.** Baixe `pso-coated_v3.zip` e `eci_offset_2009.zip` em https://eci.org/doku.php_id=en:downloads.html (seção *ICC profiles from ECI*), extraia e coloque `PSOcoated_v3.icc` e `ISOcoated_v2_eci.icc` em `public/profiles/`. Os `.icc` são ignorados pelo Git por causa da licença da ECI (seção 7.5). Sem os arquivos, os testes que dependem deles são ignorados.
 
 **Armadilha comum:** o zip já contém uma pasta `colorproof`. Se for extraído dentro de outra pasta de mesmo nome, o projeto fica em `colorproof\colorproof`. No VS Code, abra a pasta que tem `package.json` na raiz. Se aparecer `ENOENT ... package.json`, o terminal está na pasta errada.
 
 ---
 
-## 11. Referências
+## 12. Referências
 
 - Sharma, G.; Wu, W.; Dalal, E. N. *The CIEDE2000 color-difference formula: implementation notes, supplementary test data, and mathematical observations.* Color Research & Application, 30(1), 21–30, 2005.
 - CIE 142-2001. *Improvement to industrial colour-difference evaluation.*
 - ISO 12647-2. *Graphic technology: process control for the production of halftone colour separations, proof and production prints. Offset lithographic processes.*
 - ICC. *Specification ICC.1* (estrutura de perfis, tags A2B/B2A).
 - Little CMS (lcms2): https://www.littlecms.com
+- lcms-wasm (Matt DesLauriers): https://github.com/mattdesl/lcms-wasm
+- ECI European Color Initiative. Downloads de perfis ICC: https://eci.org/doku.php_id=en:downloads.html
 - PDF.js (Mozilla): https://mozilla.github.io/pdf.js/
 
 ---

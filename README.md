@@ -12,7 +12,7 @@ software proprietário.
 - **APIs nativas do navegador:** Canvas API, Web Workers + Transferable
   Objects, File API / ArrayBuffer / TypedArrays
 - **Bibliotecas de terceiros:** `pdfjs-dist` (extração de estrutura do PDF),
-  lcms2 compilado para WASM (motor de cor / CMM — a integrar na Fase 3)
+  `lcms-wasm` (Little CMS compilado para WASM; motor de cor / CMM)
 - **Framework de testes:** Vitest
 - **Ambiente de desenvolvimento:** Node.js (só tooling — não faz parte do
   runtime da aplicação entregue)
@@ -28,7 +28,10 @@ src/
                            + pipeline sRGB→Lab contra referência independente
 
   lib/
-    icc/colorEngine.ts    Fase 3 — integração com lcms2-wasm (a implementar)
+    icc/                  Fase 3 — integração com lcms2-wasm
+      colorEngine.ts      CMYK <-> Lab, round-trip, sRGB -> Lab (testado em Node)
+      iccTags.ts          leitura do cabeçalho e das tags de um perfil ICC
+      characterization.ts dados de caracterização (CGATS) embutidos no perfil
     pdf/extractImages.ts  Fase 4 — extração de imagens/OutputIntent do PDF
                            via pdf.js (a implementar)
     sampling/kmeans.ts     Fase 4 — clusterização de cor em Lab (implementado,
@@ -38,7 +41,7 @@ src/
 
   types/color.ts          Tipos base: RGB, XYZ, Lab, iluminantes D65/D50
 
-  components/             Fase 8 — UI real (a construir sobre o mockup)
+  components/             ProfileSmokeTest (provisório, Fase 3); UI real na Fase 8
 
   App.tsx                 Placeholder: mostra o status de cada fase
 ```
@@ -61,11 +64,25 @@ npm run dev      # sobe o servidor de desenvolvimento
 npm test         # roda os testes unitários (Vitest)
 ```
 
+### Perfis ICC (não acompanham o repositório)
+
+O aviso de direitos dos perfis da ECI não permite redistribuí-los sem
+permissão escrita, por isso `*.icc` está no `.gitignore`. Baixe-os em
+https://eci.org/doku.php_id=en:downloads.html (seção *ICC profiles from ECI*):
+
+- `pso-coated_v3.zip` contém `PSOcoated_v3.icc` (FOGRA51)
+- `eci_offset_2009.zip` contém `ISOcoated_v2_eci.icc` (FOGRA39)
+
+Coloque os arquivos `.icc` em `public/profiles/`. Sem eles, os testes que
+dependem de perfil são ignorados (os demais continuam rodando).
+
 ## Status atual (mapeado ao roteiro de 8 fases)
 
 - [x] **Fase 1** — Setup e fundamentação
 - [x] **Fase 2** — Núcleo matemático colorimétrico (54/54 testes passando)
-- [ ] **Fase 3** — Integração do motor de cor (lcms2-wasm)
+- [ ] **Fase 3** — Integração do motor de cor (lcms2-wasm): implementada e
+      testada em Node com o PSO Coated v3; faltam verificar no navegador e
+      em Web Worker e repetir com o ISOcoated_v2
 - [ ] **Fase 4** — Extração de cor do PDF (esqueleto pronto, funções lançam
       `Error` de "ainda não implementado" propositalmente — ver TODOs em
       `lib/pdf/extractImages.ts`)

@@ -22,3 +22,6 @@ dist-ssr
 *.njsproj
 *.sln
 *.sw?
+
+# Perfis ICC da ECI (aviso de direitos: não redistribuir sem permissão escrita)
+*.icc

@@ -8,6 +8,7 @@
 // cor já estiverem validados.
 
 import './App.css';
+import ProfileSmokeTest from './components/ProfileSmokeTest';
 
 interface PhaseStatus {
   name: string;
@@ -40,6 +41,7 @@ function App() {
           </li>
         ))}
       </ul>
+      <ProfileSmokeTest />
     </main>
   );
 }

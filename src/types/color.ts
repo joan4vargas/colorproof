@@ -8,6 +8,14 @@ export interface RGB {
   b: number; // 0-255
 }
 
+// Cor de dispositivo CMYK, em porcentagem de cobertura de tinta (0-100).
+export interface Cmyk {
+  c: number;
+  m: number;
+  y: number;
+  k: number;
+}
+
 export interface XYZ {
   x: number;
   y: number;
