@@ -8,6 +8,7 @@
 // cor já estiverem validados.
 
 import './App.css';
+import PdfColorTest from './components/PdfColorTest';
 import ProfileSmokeTest from './components/ProfileSmokeTest';
 
 interface PhaseStatus {
@@ -17,8 +18,8 @@ interface PhaseStatus {
 
 const PHASES: PhaseStatus[] = [
   { name: 'Núcleo matemático colorimétrico (RGB→XYZ→Lab, Bradford, CIEDE2000)', done: true },
-  { name: 'Motor de cor via lcms2-wasm', done: false },
-  { name: 'Extração de cor do PDF (pdf.js + clusterização)', done: false },
+  { name: 'Motor de cor via lcms2-wasm', done: true },
+  { name: 'Extração de cor do PDF (pdf.js + clusterização)', done: true },
   { name: 'Web Workers e performance', done: false },
   { name: 'Fluxo A: round-trip (foco principal)', done: false },
   { name: 'Fluxo B: referência vs. simulação (complementar)', done: false },
@@ -42,6 +43,7 @@ function App() {
         ))}
       </ul>
       <ProfileSmokeTest />
+      <PdfColorTest />
     </main>
   );
 }

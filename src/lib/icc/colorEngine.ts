@@ -59,6 +59,13 @@ export interface IccProfileHandle {
   /** CMYK (%) -> Lab pela tabela A2B do perfil. */
   cmykToLab(cmyk: Cmyk, intent?: RenderingIntent): Lab;
 
+  /**
+   * Converte muitas cores de uma vez. `samples` traz 4 bytes por cor (C, M, Y, K
+   * de 0 a 255, onde 255 = 100% de tinta, como nos pixmaps CMYK de 8 bits).
+   * Equivale a chamar `cmykToLab` em cada uma, mas sem o custo por chamada.
+   */
+  cmyk8ToLab(samples: ArrayLike<number>, intent?: RenderingIntent): Lab[];
+
   /** Lab -> CMYK (%) pela tabela B2A do perfil. */
   labToCmyk(lab: Lab, intent?: RenderingIntent): Cmyk;
 
@@ -204,6 +211,9 @@ export async function createColorEngine(options: ColorEngineOptions = {}): Promi
       const cmykToLab16 = (samples: Uint16Array, intent: RenderingIntent) =>
         lcms.cmsDoTransform(transform('a2b', intent), samples, 1);
 
+      const cmykToLab16Many = (samples: Uint16Array, n: number, intent: RenderingIntent) =>
+        lcms.cmsDoTransform(transform('a2b', intent), samples, n);
+
       return {
         id,
         description: lcms.cmsGetProfileInfoASCII(profile, INFO_DESCRIPTION, 'en', 'US'),
@@ -211,6 +221,25 @@ export async function createColorEngine(options: ColorEngineOptions = {}): Promi
         cmykToLab(cmyk, intent = 'relative') {
           const out = cmykToLab16(Uint16Array.from(encodeCmyk16(cmyk)), intent);
           return decodeLab16(out);
+        },
+
+        cmyk8ToLab(samples, intent = 'relative') {
+          if (samples.length % 4 !== 0) {
+            throw new Error('cmyk8ToLab: o número de amostras precisa ser múltiplo de 4.');
+          }
+          const total = samples.length / 4;
+          const labs: Lab[] = new Array(total);
+          const CHUNK = 32768; // cores por chamada ao WASM
+          for (let start = 0; start < total; start += CHUNK) {
+            const n = Math.min(CHUNK, total - start);
+            const input = new Uint16Array(n * 4);
+            for (let i = 0; i < input.length; i++) input[i] = samples[start * 4 + i] * 257;
+            const out = cmykToLab16Many(input, n, intent);
+            for (let i = 0; i < n; i++) {
+              labs[start + i] = decodeLab16(out, i * 3);
+            }
+          }
+          return labs;
         },
 
         labToCmyk(l, intent = 'relative') {

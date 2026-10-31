@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deltaE2000, rgbToLabD50, xyzToLab, adaptBradford, rgbToXyzD65 } from '../colorimetry';
+import { deltaE2000, rgbToLabD50, xyzToLab, adaptBradford, rgbToXyzD65, labD50ToRgbClipped } from '../colorimetry';
 import type { Lab, RGB, XYZ } from '../../types/color';
 
 // =========================================================================
@@ -185,5 +185,33 @@ const PIPELINE_REFERENCES: readonly PipelineReference[] = [
 describe('Pipeline sRGB -> Lab (D50) contra implementação independente (colour-science)', () => {
   it.each(PIPELINE_REFERENCES)('$nome: ΔE00 < 0,05 em relação à referência', ({ rgb, lab: expected }) => {
     expect(deltaE2000(rgbToLabD50(rgb), expected)).toBeLessThan(0.05);
+  });
+});
+
+describe('labD50ToRgbClipped (só para exibição)', () => {
+  it('é a inversa de rgbToLabD50 em cores dentro do gamut (±1 por canal)', () => {
+    const samples = [
+      { r: 0, g: 0, b: 0 },
+      { r: 255, g: 255, b: 255 },
+      { r: 200, g: 30, b: 30 },
+      { r: 30, g: 150, b: 60 },
+      { r: 30, g: 60, b: 200 },
+      { r: 139, g: 69, b: 19 },
+      { r: 128, g: 128, b: 128 },
+    ];
+    for (const rgb of samples) {
+      const back = labD50ToRgbClipped(rgbToLabD50(rgb));
+      expect(Math.abs(back.r - rgb.r)).toBeLessThanOrEqual(1);
+      expect(Math.abs(back.g - rgb.g)).toBeLessThanOrEqual(1);
+      expect(Math.abs(back.b - rgb.b)).toBeLessThanOrEqual(1);
+    }
+  });
+
+  it('recorta cores fora do gamut sem sair de 0-255', () => {
+    const c = labD50ToRgbClipped({ l: 55, a: -75, b: -50 }); // ciano de impressão, fora do sRGB
+    for (const v of [c.r, c.g, c.b]) {
+      expect(v).toBeGreaterThanOrEqual(0);
+      expect(v).toBeLessThanOrEqual(255);
+    }
   });
 });

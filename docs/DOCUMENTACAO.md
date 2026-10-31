@@ -1,6 +1,6 @@
 # ColorProof — Documentação técnica
 
-Estado do projeto em **13/10/2026** · Fases 1 e 2 concluídas e validadas (54 testes) · Fase 3 a iniciar
+Estado do projeto em **30/10/2026** · Fases 1 a 4 implementadas (159 testes) · Pendências: Web Worker (Fase 3), PDFs reais de produção (Fase 4), decisão de licença (L14)
 
 Este documento registra o que foi decidido, o que foi construído, como foi validado e o que ainda é limitação. Ele é escrito para servir de base à seção prática da monografia e para quem for continuar o código.
 
@@ -67,13 +67,14 @@ Laudo: ΔE00 (CIEDE2000) vs. tolerância adotada
 | API do navegador | Canvas API | Rasterização e leitura de pixels (apenas para exibição) |
 | API do navegador | Web Workers + Transferable Objects | Cálculo fora da thread principal, sem cópia de buffers |
 | API do navegador | File API / ArrayBuffer / TypedArrays | Leitura local de PDF e perfis ICC |
-| Terceiros | `pdfjs-dist` | Estrutura do PDF (páginas, imagens, Output Intent) |
+| Terceiros | `pdfjs-dist` | Rasterização das páginas do PDF em sRGB (caminho RGB) |
+| Terceiros | `mupdf` 1.28 (MuPDF em WASM, **AGPL-3.0**) | Leitura das páginas do PDF em CMYK (caminho CMYK) |
 | Terceiros | `lcms-wasm` 1.0.x (Little CMS em WASM, licença MIT) | Motor de cor: abre perfis ICC e converte CMYK e Lab pelas tabelas A2B e B2A |
-| Testes | Vitest | Validação numérica do núcleo |
+| Testes | Vitest; `@napi-rs/canvas` (só em desenvolvimento) | Validação numérica do núcleo; canvas em Node para rasterizar PDFs nos testes |
 | Desenvolvimento | Node.js, VS Code | Apenas tooling |
 | Execução | Navegador (client-side) | Runtime final |
 
-Versões instaladas (conforme `package.json`): React 19, Vite 8, TypeScript 6, Vitest 5, pdfjs-dist 4.x, lcms-wasm 1.0.x.
+Versões instaladas (conforme `package.json`): React 19, Vite 8, TypeScript 6, Vitest 5, pdfjs-dist 4.x, lcms-wasm 1.0.x, mupdf 1.28.
 
 ---
 
@@ -84,14 +85,24 @@ Versões instaladas (conforme `package.json`): React 19, Vite 8, TypeScript 6, V
 | `src/types/color.ts` | Tipos `RGB`, `XYZ`, `Lab`, `WhitePoint` e iluminantes D65 e D50 | Pronto |
 | `src/core/colorimetry.ts` | `rgbToXyzD65`, `adaptBradford`, `xyzToLab`, `rgbToLabD50`, `deltaE2000` | Pronto e testado (dataset completo de 34 pares) |
 | `src/core/__tests__/colorimetry.test.ts` | 54 testes (ver seção 6) | Passando |
-| `src/lib/sampling/kmeans.ts` | `kmeansLab(points, k, maxIterations)` com inicialização por amostragem espaçada | Implementado, **sem testes** |
+| `src/lib/sampling/kmeans.ts` | `kmeansLab`, `kmeansLabWeighted` (k-means ponderado em Lab, inicialização determinística) | Implementado e testado (seção 8) |
+| `src/lib/pdf/cmykPdf.ts` | Caminho CMYK: `inspectPdfColorUsage` (conta o que o PDF pinta em cada espaço de cor, com um dispositivo do MuPDF) e `renderPdfPagesCmyk` (página em CMYK de 8 bits, com o ICC do MuPDF desligado). O MuPDF é injetado pelo chamador. |
+| `src/lib/pdf/analyzePdf.ts` | `analyzePdf`: escolhe o caminho, devolve cores, avisos e o uso de espaços de cor. `CmykProfileRequiredError` quando o PDF tem CMYK e não há perfil. Se o MuPDF não carregar, cai para RGB e avisa. |
+| `src/lib/sampling/dominantCmyk.ts` | `extractDominantCmykColors`: histograma exato de cores CMYK de 8 bits, papel = 0/0/0/0, conversão para Lab em lote pelo perfil e k-means ponderado. |
+| `src/lib/icc/colorEngine.ts` | `cmyk8ToLab`: conversão CMYK para Lab em lote (blocos de 32768 cores). |
+| `src/core/colorimetry.ts` | `labD50ToRgbClipped`: Lab para sRGB recortado, só para desenhar amostras na tela. |
+| `src/lib/sampling/dominantColors.ts` | `extractDominantColors`: histograma exato, exclusão do papel, k-means ponderado | Implementado e testado (seção 8) |
 | `src/lib/icc/colorEngine.ts` | `createColorEngine`, `loadProfile`, `cmykToLab`, `labToCmyk`, `roundTripLab`, `rgbToDeviceCmyk`, `srgbToLab` (ver seção 7) | Implementado e testado em Node |
 | `src/lib/icc/iccTags.ts` | Leitura do cabeçalho e das tags de texto de um perfil ICC | Implementado e testado |
 | `src/lib/icc/characterization.ts` | Leitura dos dados de caracterização (CGATS) embutidos no perfil (tag `targ`) | Implementado e testado |
 | `src/lib/icc/__tests__/` | 32 testes: 9 do leitor ICC, do CGATS e da codificação de 16 bits (sem arquivo externo); 13 de sRGB contra o núcleo; 9 do perfil PSO Coated v3 (ignorados se o `.icc` não estiver na máquina); 1 de arquivo inválido | Passando |
 | `src/types/lcms-wasm.d.ts` | Declaração de tipos do subconjunto usado do `lcms-wasm` (o pacote não publica tipos) | Pronto |
 | `src/components/ProfileSmokeTest.tsx` | Teste provisório no navegador: escolhe um `.icc` e mostra papel e sólidos em Lab | Provisório (substituído na Fase 8) |
-| `src/lib/pdf/extractImages.ts` | `extractImagesFromPdf`, `extractOutputIntentProfile` com `TODO` da Fase 4 | Esqueleto |
+| `src/lib/pdf/renderPdf.ts` | `renderPdfPages`, `concatPages` (PDF para pixels, com pdf.js e canvas injetados) | Implementado e testado em Node e no navegador |
+| `src/lib/pdf/browserPdf.ts` | Ligação ao navegador (Worker do pdf.js, canvas do DOM) e rasterização de imagens | Implementado, verificado no navegador |
+| `src/lib/pdf/outputIntent.ts` | `extractOutputIntentProfile` | Pendente (lança erro explícito) |
+| `src/lib/pdf/__fixtures__/`, `scripts/gerar-fixtures-pdf.py` | PDFs de teste e o script que os gera | Pronto |
+| `src/components/PdfColorTest.tsx` | Teste provisório da extração de cores no navegador | Provisório (substituído na Fase 8) |
 | `src/App.tsx` | Placeholder que lista o status das fases | Provisório |
 
 `src/core/` não depende de DOM, Canvas ou Workers. Entram números e saem números, o que permite testar isoladamente.
@@ -246,7 +257,96 @@ Papel e sólidos C, M, Y e K em intent absoluto coincidem com a tabela em até �
 
 ---
 
-## 8. Limitações e riscos conhecidos
+## 8. Fase 4: extração de cor do PDF
+
+### 8.1 Decisão: caminho híbrido
+
+Cada página é rasterizada e as cores são lidas dos pixels. Isso captura tudo o que aparece (imagens, vetores, texto, transparências) com um único caminho de código, e é a decisão registrada desde o planejamento, em lugar de interpretar o content stream. Mas o pdf.js entrega sRGB: cores CMYK chegam convertidas por uma fórmula aproximada, sem perfil ICC (medido na seção 8.4, desvio de 3,7 a 10,9 ΔE00 contra o perfil).
+
+Como o ambiente de uso do sistema é CMYK, foi adotado o **híbrido**:
+
+- **PDF sem CMYK pintado:** caminho RGB, pdf.js rasteriza em sRGB (exato para cores RGB).
+- **PDF com CMYK pintado:** caminho CMYK, o MuPDF (WASM) compõe a página direto em CMYK, os números C, M, Y, K do arquivo são lidos sem passar por RGB e o perfil ICC escolhido os leva a Lab (seção 8.5).
+
+A escolha do caminho é automática (`analyzePdf`), por inspeção dos espaços de cor que o arquivo realmente pinta. A recomendação da L1 (o Canvas não é fonte de verdade do laudo) continua valendo para o caminho RGB.
+
+### 8.2 O que foi implementado
+
+| Arquivo | Função |
+|---|---|
+| `src/lib/pdf/renderPdf.ts` | `renderPdfPages`: pdf.js e canvas injetados pelo chamador (funciona no navegador e em Node). Papel branco opaco, escala padrão 1,5 (cerca de 108 dpi), limite de 4 milhões de pixels por página (a escala é reduzida se passar), limite de 10 páginas. Copia o buffer de entrada, porque o pdf.js assume a posse dele. |
+| `src/lib/pdf/browserPdf.ts` | Ligação ao navegador: Web Worker do próprio pdf.js (empacotado pelo Vite) e canvas do DOM; também rasteriza imagens (PNG, JPEG), com fundo branco. |
+| `src/lib/sampling/dominantColors.ts` | `extractDominantColors`: histograma **exato** de cores RGB distintas (sem quantização), exclusão do papel (L\* ≥ 99) e dos pixels transparentes, conversão para Lab D50 e k-means ponderado. Devolve, por cor: Lab do centróide, a cor RGB real mais frequente do cluster, fração dos pixels de tinta, fração de todos os pixels e dispersão. |
+| `src/lib/sampling/kmeans.ts` | Reescrito: k-means **ponderado** em Lab, com inicialização determinística no estilo k-means++ (primeira cor = a de maior peso; as seguintes maximizam peso x distância²). Mesma entrada, mesma saída. Resolve a L7. |
+| `scripts/gerar-fixtures-pdf.py` | Gera os PDFs de teste: retângulos de cor e área conhecidas em RGB e em CMYK, um PDF misto e duas imagens CMYK (Flate e JPEG). |
+| `src/components/PdfColorTest.tsx` | Teste provisório no navegador: perfil `.icc` (opcional até o PDF precisar) e PDF ou imagem; mostra o caminho usado, os avisos e as cores dominantes. |
+
+A **dispersão** de cada cor é o ΔE00 médio entre os pixels do cluster e o centróide. Ela indica se o centróide representa uma cor que existe no arquivo (dispersão 0 em cores sólidas) ou se junta cores diferentes, como num degradê ou numa fotografia.
+
+O papel é descartado porque a folha em branco costuma ocupar boa parte da página e não é tinta. A fração de papel é reportada à parte (`paperPixels`). O limite L\* ≥ 99 é decisão de projeto: um tom muito claro, como um cinza de L\* 93, continua contando como tinta.
+
+### 8.3 Testes
+
+Ao todo, 159 testes no projeto (123 sem os `.icc` locais, 36 ignorados). Novos nesta fase:
+
+- `kmeans.test.ts` (8): grupos distantes com pesos e centróides corretos, pesos somando 1, equivalência entre peso e repetição, determinismo, k maior que o número de cores, dispersão, cor minoritária (0,1%) não engolida por uma majoritária.
+- `dominantColors.test.ts` (8): papel, frações de tinta e de pixels, centróide de cor sólida igual ao Lab da cor, tom claro que não é papel, transparência, imagem só de papel, buffer inválido, determinismo.
+- `renderPdf.test.ts` (caminho RGB): tamanho por escala, limite de pixels, buffer do chamador preservado, fundo branco, as seis cores de um PDF RGB com 12,5% da página cada e RGB exato, e o desvio do CMYK do pdf.js (8.4).
+- `cmykPdf.test.ts` (13, dois deles ligados ao perfil local): detecção de CMYK, RGB, misto e imagem CMYK; leitura exata dos números do arquivo (vetores, imagem Flate e imagem JPEG); papel 0/0/0/0; escala e limite de pixels; PDF com perfil embutido (ICCBased) montado na hora com o `.icc` local; o ICC do MuPDF volta a ficar ligado depois da leitura.
+- `dominantCmyk.test.ts`: estatística com conversor falso e, com cada perfil, conversão em lote igual à conversão cor a cor (ΔE00 < 0,01, inclusive em mais de um bloco).
+- `analyzePdf.test.ts`: escolha do caminho, erro sem perfil, queda para RGB se o MuPDF falhar, as seis cores CMYK com o Lab do perfil e 12,5% cada, comparação direta com o caminho do pdf.js, PDF misto, imagem CMYK em JPEG.
+- `colorimetry.test.ts`: +2 testes de `labD50ToRgbClipped`.
+
+Também foi conferido **no navegador** (Chromium via Playwright, build de produção): os PDFs de teste dão os mesmos resultados que em Node; um PDF CMYK sem perfil pede o perfil e, ao escolhê-lo, é reanalisado sozinho; o PDF misto avisa; PNG funciona. Tempos medidos de ponta a ponta numa página A4 com fotografia: 0,9 s em RGB (282 mil cores distintas) e 1,9 s em CMYK (852 mil cores distintas), incluindo a primeira carga do MuPDF. O tempo não separa renderização e clusterização; a medição de desempenho é da Fase 5.
+
+### 8.4 Resultado: o CMYK do pdf.js não bate com o perfil
+
+Nos PDFs de teste, cada cor CMYK (operador `k` do PDF, sem perfil) foi rasterizada e comparada com a conversão do perfil ICC (intent relativo). ΔE00 entre o sRGB que o pdf.js entrega e o Lab do perfil:
+
+| CMYK (%) | pdf.js (sRGB) | ΔE00, ISO Coated v2 | ΔE00, PSO Coated v3 |
+|---|---|---|---|
+| 100/0/0/0 (ciano) | 0, 185, 242 | 10,9 | 9,8 |
+| 0/100/0/0 (magenta) | 251, 49, 153 | 6,7 | 6,7 |
+| 0/0/100/0 (amarelo) | 255, 235, 61 | 3,8 | 4,0 |
+| 0/0/0/100 (preto) | 44, 46, 53 | 5,2 | 6,0 |
+| 40/70/0/10 | 141, 92, 164 | 6,4 | 5,9 |
+| 0/50/100/0 | 255, 144, 39 | 4,5 | 3,7 |
+
+Os desvios ficam entre 3,7 e 10,9, acima do piso do round-trip (L9) e do que se costuma usar como tolerância. O PDF não declara perfil, então o "valor correto" depende da interpretação; aqui se usou o perfil de impressão alvo, que é o que o Fluxo A pretende simular. A conversão do pdf.js é uma fórmula de uso geral para exibição em tela. O ciano e o magenta ainda estão fora do gamut do sRGB, o que explica parte do desvio.
+
+Foi verificado no `getOperatorList` do pdf.js que o CMYK já vem convertido para RGB (operador `setFillRGBColor`): **não há como recuperar o CMYK original pela API do pdf.js**, nem para vetores nem, em geral, para imagens.
+
+### 8.5 O caminho CMYK (MuPDF)
+
+O MuPDF compõe a página direto num pixmap CMYK de 8 bits (255 = 100% de tinta; papel = 0/0/0/0). Nos PDFs de teste os valores lidos são exatamente os do arquivo (40/70/0/10 % vira 102/178/0/25; imagens CMYK em Flate e em JPEG saem sem conversão). Resultado contra o perfil, nas mesmas seis cores da seção 8.4:
+
+| Caminho | Desvio contra o perfil (ΔE00, intent relativo) |
+|---|---|
+| pdf.js (sRGB) | 3,7 a 10,9 |
+| MuPDF (CMYK lido do arquivo) | < 0,25 (só o arredondamento a 8 bits: 70% vira 69,8%) |
+
+**Achado: o ICC do MuPDF precisa ficar desligado.** Num PDF que declara um perfil CMYK embutido (ICCBased), o MuPDF com ICC ligado converte os valores para o seu CMYK padrão e os números do arquivo se perdem (medido com o ISO Coated v2 embutido: ciano 100% virou 255/31/4/0 e preto 100% virou 177/169/171/200). Com `disableICC()` durante a leitura, os números saem como estão no arquivo. A consequência de projeto: **o perfil embutido no PDF é ignorado e os números CMYK são interpretados pelo perfil que o usuário escolheu**, que é o que o Fluxo A pretende simular. A biblioteca é religada ao fim de cada leitura (estado global), e há teste para isso.
+
+**Licença.** O MuPDF é AGPL-3.0 (há licença comercial da Artifex). Distribuir o sistema com ele obriga a disponibilizar o código-fonte do sistema sob termos compatíveis. Para um TCC com repositório aberto isso é viável, mas é uma decisão do autor, e deve ser registrada no trabalho (L14). O WASM tem cerca de 10 MB (4,8 MB comprimido) e só é baixado quando um PDF é analisado.
+
+**Como o caminho é escolhido.** `inspectPdfColorUsage` percorre a página com um dispositivo do MuPDF e conta o que é pintado em CMYK, RGB, cinza e outros (degradês, spot). Basta pintar algo em CMYK para escolher o caminho CMYK.
+
+### 8.6 Limites que continuam valendo
+
+- **PDF misto (CMYK e RGB):** os elementos RGB são convertidos para CMYK pelo MuPDF, sem perfil, então suas cores são aproximadas. O sistema avisa (L15). Cinza (DeviceGray) também é convertido pelo MuPDF.
+- **Intent:** a conversão CMYK para Lab usa o intent relativo por padrão. A escolha para o laudo continua em aberto (L10).
+- **Oito bits:** o pixmap tem 8 bits por canal (passo de 0,39% de tinta), o que custa até cerca de 0,2 ΔE00.
+- **Antialiasing:** bordas de formas e imagens redimensionadas geram cores intermediárias que aparecem como pequenos clusters (por exemplo 0,5% do ciano a 0,2% de cores mistas ao lado de uma imagem). O número de clusters e um filtro de participação mínima precisam ser definidos para arquivos reais.
+- **Fotografias e degradês** geram clusters de dispersão alta (7 a 12 ΔE00 numa foto CMYK de teste): a "cor dominante" ali é uma média. O laudo deve usar a dispersão para sinalizar isso.
+- **Overprint e transparência** seguem o que o MuPDF compõe; não foram testados com PDFs reais.
+- **Spot colors e degradês** são lidos como o MuPDF os converte. O sistema avisa quando existem.
+- **Os PDFs de teste são sintéticos.** Falta testar com PDFs reais de produção (InDesign, Illustrator, Canva).
+- Leitura do `/OutputIntents` (L6) continua não implementada. `outputIntent.ts` mantém o erro explícito.
+- O limite de 10 páginas e de 4 milhões de pixels por página é provisório. A Fase 5 deve medir e mover o trabalho para um Web Worker.
+
+---
+
+## 9. Limitações e riscos conhecidos
 
 **L1. O Canvas altera os pixels antes de você lê-los.** Ao desenhar uma imagem com perfil ICC embutido, o navegador converte para o espaço do canvas (em geral sRGB) antes de `getImageData`. Não há flag padrão e confiável entre Chrome, Firefox e Safari para obter o dado cru. Consequência: o Canvas serve para exibição, mas não deve ser a fonte de verdade do laudo. Para o laudo, os valores devem vir do decoder (imagens extraídas do PDF) ou da cor declarada no próprio PDF.
 
@@ -256,11 +356,11 @@ Papel e sólidos C, M, Y e K em intent absoluto coincidem com a tabela em até �
 
 **L4. "Conformidade ISO 12647" não é o que o sistema mede.** A norma avalia uma prova ou tiragem impressa **medida com espectrofotômetro**, contra dados de caracterização (FOGRA39, FOGRA51). O sistema faz uma verificação numérica simulada de gamut. O texto do trabalho e o laudo devem dizer "simulação de conformidade" ou "pré-checagem", não "laudo de conformidade ISO 12647". O limiar de ΔE00 do veredito é uma **decisão de projeto** e precisa ser definido e citado. O valor ≤ 3,00 que aparece no mockup é provisório.
 
-**L5. Cores vetoriais e spot colors não são analisadas.** Só as imagens rasterizadas entram na análise. Vai como trabalho futuro.
+**L5. Spot colors não são tratados como tais.** Como a página é rasterizada (seção 8), vetores e imagens entram na análise, mas spot colors chegam como o pdf.js (RGB) ou o MuPDF (CMYK) os converte.
 
 **L6. Output Intent.** Ler o `/OutputIntent` do PDF para sugerir o perfil de destino está previsto no esqueleto, mas não implementado.
 
-**L7. Qualidade do k-means.** A inicialização é por amostragem espaçada. Se os clusters ficarem instáveis, a alternativa documentada no código é k-means++.
+**L7. Qualidade do k-means.** **Resolvida na Fase 4:** inicialização determinística no estilo k-means++, com pesos, e 8 testes (seção 8). Continua aberta a escolha de k e de um filtro de participação mínima para arquivos reais.
 
 **L8. Definição do branco D50.** O núcleo usa Z = 82,521 e o ICC define o D50 do PCS com Z = 0,8249 (4 casas). Sem alinhar as duas definições, o Lab calculado pelo núcleo e o Lab devolvido pelo lcms2 podem diferir por um desvio sistemático pequeno que não tem relação com a cor em si (ver 6.1). **Resolvido na Fase 3:** a maior diferença medida entre o lcms2 e o núcleo foi ΔE00 = 0,016 (seção 7.4).
 
@@ -272,9 +372,17 @@ Papel e sólidos C, M, Y e K em intent absoluto coincidem com a tabela em até �
 
 **L12. Dependência do `lcms-wasm`.** Pacote pequeno, de um mantenedor, sem tipos TypeScript publicados. Risco registrado (seção 7.1).
 
+**L13. O pdf.js entrega sRGB.** O caminho RGB converte CMYK com fórmula aproximada (3,7 a 10,9 ΔE00 de desvio, seção 8.4). **Mitigada:** PDFs com CMYK passam pelo caminho CMYK (seção 8.5), que lê os números do arquivo. O caminho RGB continua valendo para PDFs sem CMYK e para imagens PNG/JPEG.
+
+**L14. Licença do MuPDF (AGPL-3.0).** Distribuir o sistema com o MuPDF exige disponibilizar o código sob termos compatíveis com a AGPL (ou obter licença comercial da Artifex). Decisão do autor a registrar no trabalho; o repositório hoje não declara licença.
+
+**L15. PDFs mistos.** Elementos RGB ou cinza dentro de um PDF com CMYK são convertidos pelo MuPDF sem perfil (seção 8.6).
+
+**L16. O perfil embutido no PDF é ignorado.** Os números CMYK do arquivo são interpretados pelo perfil escolhido pelo usuário (seção 8.5).
+
 ---
 
-## 9. Correções em relação ao que foi dito durante o planejamento
+## 10. Correções em relação ao que foi dito durante o planejamento
 
 | Item | Dito antes | Correto |
 |---|---|---|
@@ -286,24 +394,26 @@ Papel e sólidos C, M, Y e K em intent absoluto coincidem com a tabela em até �
 
 ---
 
-## 10. Roteiro e status
+## 11. Roteiro e status
 
 | Fase | Descrição | Status |
 |---|---|---|
 | 1 | Setup e fundamentação | Concluída |
 | 2 | Núcleo matemático colorimétrico | Concluída (34 pares + pipeline validado, ver seção 6) |
 | 3 | Integração do lcms2-wasm e perfis ICC | Implementada e testada em Node com PSO Coated v3 e ISO Coated v2 (seção 7). Pendentes: navegador e Web Worker |
-| 4 | Extração de cor do PDF (pdf.js + clusterização) | Pendente |
+| 4 | Extração de cor do PDF (pdf.js + clusterização) | Implementada e testada em Node e no navegador, com caminho híbrido RGB/CMYK (seção 8). Pendente: PDFs reais de produção |
 | 5 | Web Workers e medição de desempenho | Pendente |
 | 6 | Fluxo A: round-trip e laudo | Pendente |
 | 7 | Fluxo B: referência vs. simulação | Pendente |
 | 8 | Interface, validação final e escrita | Pendente |
 
-**Pendências antes ou durante a Fase 3:**
+**Pendências (Fases 3 e 4):**
+
+0. ~~Decidir como tratar o CMYK dos PDFs.~~ Decidido: híbrido (seção 8). **Decidir a licença do projeto por causa da AGPL do MuPDF (L14).**
 
 1. ~~Completar os 34 pares de Sharma et al. nos testes.~~ Feito.
 2. ~~Adicionar testes de pipeline com cores sRGB de Lab conhecido.~~ Feito.
-3. Testar `kmeansLab` (determinismo, pesos somando 1, casos com poucos pontos).
+3. ~~Testar `kmeansLab` (determinismo, pesos somando 1, casos com poucos pontos).~~ Feito (seção 8.3).
 4. ~~Obter os perfis `.icc` (ECI) e verificar a licença.~~ PSO Coated v3 obtido e licença lida (não redistribuir). ISOcoated_v2 obtido e testado.
 5. Definir rendering intent, compensação de ponto preto e limiar de tolerância (seção 7.5, L9 e L10).
 6. Escolher a referência externa de validação (ArgyllCMS, `xicclu`) e registrar os valores comparados. As referências atuais vêm do próprio perfil.
@@ -312,7 +422,7 @@ Papel e sólidos C, M, Y e K em intent absoluto coincidem com a tabela em até �
 
 ---
 
-## 11. Como executar
+## 12. Como executar
 
 Requisitos: Node.js (versão LTS) e VS Code.
 
@@ -320,7 +430,7 @@ Requisitos: Node.js (versão LTS) e VS Code.
 cd colorproof        # a pasta que contém package.json
 npm install
 npm run dev          # http://localhost:5173
-npm test             # 95 testes com os dois perfis locais; sem eles, 77 passam e 18 são ignorados
+npm test             # 159 testes com os dois perfis locais; sem eles, 123 passam e 36 são ignorados
 ```
 
 **Perfis ICC.** Baixe `pso-coated_v3.zip` e `eci_offset_2009.zip` em https://eci.org/doku.php_id=en:downloads.html (seção *ICC profiles from ECI*), extraia e coloque `PSOcoated_v3.icc` e `ISOcoated_v2_eci.icc` em `public/profiles/`. Os `.icc` são ignorados pelo Git por causa da licença da ECI (seção 7.5). Sem os arquivos, os testes que dependem deles são ignorados.
@@ -329,7 +439,7 @@ npm test             # 95 testes com os dois perfis locais; sem eles, 77 passam 
 
 ---
 
-## 12. Referências
+## 13. Referências
 
 - Sharma, G.; Wu, W.; Dalal, E. N. *The CIEDE2000 color-difference formula: implementation notes, supplementary test data, and mathematical observations.* Color Research & Application, 30(1), 21–30, 2005.
 - CIE 142-2001. *Improvement to industrial colour-difference evaluation.*

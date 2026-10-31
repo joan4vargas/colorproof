@@ -32,16 +32,24 @@ src/
       colorEngine.ts      CMYK <-> Lab, round-trip, sRGB -> Lab (testado em Node)
       iccTags.ts          leitura do cabeçalho e das tags de um perfil ICC
       characterization.ts dados de caracterização (CGATS) embutidos no perfil
-    pdf/extractImages.ts  Fase 4 — extração de imagens/OutputIntent do PDF
-                           via pdf.js (a implementar)
-    sampling/kmeans.ts     Fase 4 — clusterização de cor em Lab (implementado,
-                           ainda sem testes)
+    pdf/                  Fase 4 — PDF -> pixels (pdf.js e MuPDF); fixtures e testes
+      renderPdf.ts        caminho RGB: rasteriza páginas (pdf.js e canvas injetados)
+      cmykPdf.ts          caminho CMYK: lê os números C, M, Y, K (MuPDF)
+      analyzePdf.ts       escolhe o caminho (híbrido RGB/CMYK)
+      browserPdf.ts       ligação ao navegador; rasteriza imagens
+      outputIntent.ts     leitura do /OutputIntents (pendente)
+    sampling/             Fase 4 — cores dominantes
+      kmeans.ts           k-means ponderado em Lab, determinístico
+      dominantColors.ts   RGB: histograma exato + exclusão do papel + k-means
+      dominantCmyk.ts     CMYK: o mesmo, com Lab pelo perfil ICC
+
+  scripts/                gerar-fixtures-pdf.py (PDFs de teste; usa reportlab)
 
   workers/                Fase 5 — Web Workers (a criar)
 
   types/color.ts          Tipos base: RGB, XYZ, Lab, iluminantes D65/D50
 
-  components/             ProfileSmokeTest (provisório, Fase 3); UI real na Fase 8
+  components/             ProfileSmokeTest e PdfColorTest (provisórios); UI real na Fase 8
 
   App.tsx                 Placeholder: mostra o status de cada fase
 ```
@@ -80,12 +88,14 @@ dependem de perfil são ignorados (os demais continuam rodando).
 
 - [x] **Fase 1** — Setup e fundamentação
 - [x] **Fase 2** — Núcleo matemático colorimétrico (54/54 testes passando)
-- [ ] **Fase 3** — Integração do motor de cor (lcms2-wasm): implementada e
-      testada em Node com PSO Coated v3 e ISO Coated v2; faltam verificar
-      no navegador e em Web Worker
-- [ ] **Fase 4** — Extração de cor do PDF (esqueleto pronto, funções lançam
-      `Error` de "ainda não implementado" propositalmente — ver TODOs em
-      `lib/pdf/extractImages.ts`)
+- [ ] **Fase 3** — Integração do motor de cor (lcms2-wasm): implementada,
+      testada em Node e no navegador com PSO Coated v3 e ISO Coated v2; falta
+      verificar em Web Worker (Fase 5)
+- [x] **Fase 4** — Extração de cor do PDF. Híbrido: PDFs sem CMYK pelo
+      pdf.js (sRGB); PDFs com CMYK pelo MuPDF, que lê os números C, M, Y, K do
+      arquivo (o pdf.js os converte de forma aproximada, 3,7 a 10,9 ΔE00 de
+      desvio). Testada em Node e no navegador. Atenção: o MuPDF é AGPL-3.0;
+      ver `docs/DOCUMENTACAO.md`, seção 8 e L14
 - [ ] **Fase 5** — Web Workers e performance
 - [ ] **Fase 6** — Fluxo A: round-trip (foco principal do TCC)
 - [ ] **Fase 7** — Fluxo B: referência vs. simulação (complementar)

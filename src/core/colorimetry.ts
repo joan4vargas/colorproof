@@ -212,3 +212,48 @@ export function deltaE2000(lab1: Lab, lab2: Lab): number {
     termL * termL + termC * termC + termH * termH + RT * termC * termH,
   );
 }
+
+// --- 5. Lab (D50) -> sRGB, só para EXIBIÇÃO ------------------------------
+//
+// Usada para desenhar uma amostra na tela de uma cor que só existe em Lab
+// (por exemplo, a de um CMYK lido de um PDF). Cores fora do gamut do sRGB são
+// recortadas, então a amostra é uma aproximação visual: o valor que vale para o
+// laudo é sempre o Lab, nunca este RGB.
+
+function invert3x3(m: readonly (readonly number[])[]): number[][] {
+  const [[a, b, c], [d, e, f], [g, h, i]] = m;
+  const det = a * (e * i - f * h) - b * (d * i - f * g) + c * (d * h - e * g);
+  return [
+    [(e * i - f * h) / det, (c * h - b * i) / det, (b * f - c * e) / det],
+    [(f * g - d * i) / det, (a * i - c * g) / det, (c * d - a * f) / det],
+    [(d * h - e * g) / det, (b * g - a * h) / det, (a * e - b * d) / det],
+  ];
+}
+
+const XYZ_D65_TO_SRGB = invert3x3(SRGB_TO_XYZ_D65);
+
+function labToXyz(lab: Lab, whitePoint = ILLUMINANT_D50): XYZ {
+  const fy = (lab.l + 16) / 116;
+  const fx = fy + lab.a / 500;
+  const fz = fy - lab.b / 200;
+  const delta = 6 / 29;
+  const inv = (t: number) => (t > delta ? t * t * t : 3 * delta * delta * (t - 4 / 29));
+  return { x: inv(fx) * whitePoint.x, y: inv(fy) * whitePoint.y, z: inv(fz) * whitePoint.z };
+}
+
+function linearToSrgbChannel(linear: number): number {
+  const c = Math.min(1, Math.max(0, linear));
+  const v = c <= 0.0031308 ? c * 12.92 : 1.055 * Math.pow(c, 1 / 2.4) - 0.055;
+  return Math.round(v * 255);
+}
+
+/** Lab (D50) -> sRGB (0-255), recortando o que sai do gamut. Só para exibição. */
+export function labD50ToRgbClipped(lab: Lab): RGB {
+  const xyzD65 = adaptBradford(labToXyz(lab), ILLUMINANT_D50, { x: 95.047, y: 100.0, z: 108.883 });
+  const lin = applyMatrix(XYZ_D65_TO_SRGB, { x: xyzD65.x / 100, y: xyzD65.y / 100, z: xyzD65.z / 100 });
+  return {
+    r: linearToSrgbChannel(lin.x),
+    g: linearToSrgbChannel(lin.y),
+    b: linearToSrgbChannel(lin.z),
+  };
+}
