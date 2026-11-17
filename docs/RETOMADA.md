@@ -23,11 +23,14 @@ Fases 1 a 5 implementadas, 174 testes passando (com os dois perfis). A Fase 5 es
 5. Configurar a identidade do Git só neste repositório: `git config user.name "Seu Nome"` e `git config user.email "seu-email"`.
 6. Em PC compartilhado, apagar o login do GitHub no Gerenciador de Credenciais do Windows ao terminar.
 
+## Decisões tomadas (17/11/2026, detalhes em DOCUMENTACAO.md seção 8c)
+
+- **Licença:** AGPL-3.0 (arquivo `LICENSE`), por causa do MuPDF.
+- **Intent:** relativo no Fluxo A; absoluto no Fluxo B. BPC desligado até medir (medir no início da Fase 6).
+- **Limiar de ΔE00:** aprovado ≤ 3,0; atenção de 3,0 a 4,0; reprovado > 4,0. Tolerâncias da ISO 12647-2 não verificadas: achar bibliografia antes de citar.
+
 ## Decisões em aberto
 
-- **Licença do projeto.** O MuPDF é AGPL-3.0. Distribuir o sistema com ele exige abrir o código sob termos compatíveis, ou licença comercial da Artifex. O repositório não declara licença. Registrar a escolha no trabalho (L14).
-- **Rendering intent e compensação de ponto preto** do laudo (L10). Só o intent absoluto reproduz os dados de caracterização do perfil.
-- **Limiar de ΔE00 do veredito.** Precisa ficar acima do piso do round-trip (até cerca de 4 ΔE00 nos casos extremos, L9). É decisão de projeto e precisa ser citada.
 - **Licença da ECI no site publicado:** servir o `.icc` aos usuários exige permissão escrita da ECI; alternativa é o usuário fornecer o perfil (L11).
 - **k e filtro de participação mínima** das cores dominantes em arquivos reais.
 

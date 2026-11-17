@@ -1,6 +1,6 @@
 # ColorProof — Documentação técnica
 
-Estado do projeto em **30/10/2026** · Fases 1 a 5 implementadas (174 testes) · Pendências: PDFs reais de produção (Fase 4), decisão de licença (L14)
+Estado do projeto em **30/10/2026** · Fases 1 a 5 implementadas (174 testes) · Pendências: PDFs reais de produção (Fase 4)
 
 Este documento registra o que foi decidido, o que foi construído, como foi validado e o que ainda é limitação. Ele é escrito para servir de base à seção prática da monografia e para quem for continuar o código.
 
@@ -392,6 +392,25 @@ Leitura: com gráficos vetoriais simples o custo dominante é a **clusterizaçã
 
 ---
 
+## 8c. Decisões de projeto tomadas em 17/11/2026
+
+Decididas pelo autor com base nas medições das seções 7.4 e 8b. São escolhas de projeto, não valores da norma.
+
+**D1. Rendering intent (L10).** Fluxo A (cor de PDF/sRGB, ida e volta pelo perfil): **relativo colorimétrico**. Fluxo B (CMYK contra os valores de referência da condição de impressão): **absoluto**, porque os dados de caracterização são Lab absoluto. Compensação de ponto preto: **desligada** até ser medida; o preto sRGB tem round-trip de 7 a 9 ΔE00, e o efeito do BPC deve ser medido no início da Fase 6.
+
+**D2. Limiar de ΔE00 do veredito (L4, L9).** Três faixas: **aprovado ≤ 3,0**; **atenção de 3,0 a 4,0**; **reprovado > 4,0**. Fundamento: piso de erro do round-trip em cores reprodutíveis (patches de caracterização, intent relativo), medido nos dois perfis:
+
+| Perfil | Média | p99 | > 2 | > 3 | > 4 | > 5 |
+|---|---|---|---|---|---|---|
+| ISO Coated v2 | 0,29 | 2,14 | 1,36 % | 0,49 % | 0,25 % | 0 % |
+| PSO Coated v3 | 0,39 | 2,34 | 2,16 % | 0,25 % | 0 % | 0 % |
+
+Com o corte de reprovação em 4,0, até 0,25 % dos patches dentro do gamut seriam reprovados só por erro do método. Perda de gamut real é bem maior (sRGB verde puro 18 ΔE00, azul 14 a 16, ciano 14, vermelho 5 a 6, laranja 2,6 a 2,7; cinza 50 % 0,1). As tolerâncias numéricas da ISO 12647-2 **não foram verificadas** e a norma usa ΔE\*ab; o valor do trabalho precisa ser justificado com bibliografia antes de ser citado como relacionado à norma.
+
+**D3. Licença do projeto (L14).** **AGPL-3.0** para o projeto inteiro (arquivo `LICENSE`), por causa do MuPDF. As demais dependências principais (lcms-wasm, MIT; pdf.js, Apache-2.0) foram conferidas só de forma geral quanto à compatibilidade. O autor não é jurista; para uso comercial seria preciso licença comercial da Artifex ou trocar o MuPDF. Os perfis `.icc` da ECI continuam fora do repositório e não são cobertos por esta licença.
+
+---
+
 ## 9. Limitações e riscos conhecidos
 
 **L1. O Canvas altera os pixels antes de você lê-los.** Ao desenhar uma imagem com perfil ICC embutido, o navegador converte para o espaço do canvas (em geral sRGB) antes de `getImageData`. Não há flag padrão e confiável entre Chrome, Firefox e Safari para obter o dado cru. Consequência: o Canvas serve para exibição, mas não deve ser a fonte de verdade do laudo. Para o laudo, os valores devem vir do decoder (imagens extraídas do PDF) ou da cor declarada no próprio PDF.
@@ -412,7 +431,7 @@ Leitura: com gráficos vetoriais simples o custo dominante é a **clusterizaçã
 
 **L9. Piso de erro do round-trip.** Lab → CMYK → Lab não é idêntico nem para cores dentro do gamut: nos patches de caracterização do PSO Coated v3, a média ficou em 0,3 a 0,4 ΔE00 e o máximo em 2,8 a 3,8 (seção 7.4). O limiar do laudo deve considerar isso.
 
-**L10. Rendering intent e ponto preto.** O intent muda o resultado de forma material (seção 7.4). Intent e compensação de ponto preto ainda precisam ser definidos para o laudo.
+**L10. Rendering intent e ponto preto.** O intent muda o resultado de forma material (seção 7.4). Decidido na seção 8c (D1): relativo no Fluxo A, absoluto no Fluxo B, BPC desligado até medir.
 
 **L11. Licença dos perfis ECI.** Os `.icc` não podem ser redistribuídos sem permissão escrita da ECI (seção 7.5). Não os coloque no repositório.
 
@@ -455,7 +474,7 @@ Leitura: com gráficos vetoriais simples o custo dominante é a **clusterizaçã
 
 **Pendências (Fases 3 e 4):**
 
-0. ~~Decidir como tratar o CMYK dos PDFs.~~ Decidido: híbrido (seção 8). **Decidir a licença do projeto por causa da AGPL do MuPDF (L14).**
+0. ~~Decidir como tratar o CMYK dos PDFs.~~ Decidido: híbrido (seção 8). Licença decidida: AGPL-3.0 (seção 8c).
 
 1. ~~Completar os 34 pares de Sharma et al. nos testes.~~ Feito.
 2. ~~Adicionar testes de pipeline com cores sRGB de Lab conhecido.~~ Feito.

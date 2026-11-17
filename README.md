@@ -115,3 +115,7 @@ dependem de perfil são ignorados (os demais continuam rodando).
 - **Perfis ICC:** ISOcoated_v2 (caracterização FOGRA39) e PSOcoated_v3
   (caracterização FOGRA51) como perfis padrão, com suporte a perfil
   customizado do usuário. São caracterizações de impressão diferentes.
+
+## Licença
+
+AGPL-3.0 (ver `LICENSE`), por causa da dependência MuPDF. Os perfis ICC da ECI não fazem parte do repositório e têm licença própria.
