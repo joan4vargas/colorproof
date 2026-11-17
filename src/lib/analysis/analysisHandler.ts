@@ -7,6 +7,7 @@
 
 import { extractDominantColors } from '../sampling/dominantColors';
 import type { ColorEngine, IccProfileHandle } from '../icc/colorEngine';
+import { compareFiles } from '../compare/compareFiles';
 import { evaluateFlowA } from '../report/flowA';
 import { analyzePdf, type AnalyzePdfDeps, type PdfAnalysis } from '../pdf/analyzePdf';
 import type { AnalysisParams, WorkerRequest, WorkerResponse } from './protocol';
@@ -40,6 +41,16 @@ export function createAnalysisHandler(
         profile?.libera();
         profile = loaded;
         post({ id, type: 'profileLoaded', description: loaded.description });
+        return;
+      }
+
+      if (req.type === 'compare') {
+        const outcome = await compareFiles(req.reference, req.simulation, { ...env.deps, rasterizeImage: env.rasterizeImage }, {
+          ...req.params,
+          profile: profile ?? undefined,
+          onProgress: (stage) => post({ id, type: 'progress', stage }),
+        });
+        post({ id, type: 'compareResult', outcome });
         return;
       }
 

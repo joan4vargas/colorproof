@@ -6,6 +6,7 @@ import { describe, expect, it } from 'vitest';
 import { createColorEngine } from '../../icc/colorEngine';
 import { CmykProfileRequiredError, type AnalysisStage, type AnalyzePdfDeps } from '../../pdf/analyzePdf';
 import type { RenderOptions } from '../../pdf/renderPdf';
+import { LayoutMismatchError } from '../../compare/flowB';
 import { createAnalysisHandler, type HandlerEnv } from '../analysisHandler';
 import { AnalysisCancelledError, AnalysisClient, type WorkerLike } from '../analysisClient';
 import type { WorkerRequest, WorkerResponse } from '../protocol';
@@ -125,6 +126,44 @@ describe.skipIf(!hasProfile)('createAnalysisHandler com perfil CMYK', () => {
     expect(out.findIndex((r) => r.id === 1 && r.type === 'profileLoaded')).toBeLessThan(
       out.findIndex((r) => r.id === 2 && r.type === 'result'),
     );
+  });
+});
+
+describe('AnalysisClient: Fluxo B (compare)', () => {
+  const solid = (w: number, h: number) => ({ width: w, height: h, data: new Uint8ClampedArray(w * h * 4).fill(120).map((v, i) => (i % 4 === 3 ? 255 : v)) });
+  const envWith = () => ({
+    ...makeEnv(),
+    rasterizeImage: async (_b: ArrayBuffer, mime: string) => (mime === 'image/tall' ? solid(40, 60) : solid(40, 40)),
+  });
+
+  it('compara duas imagens do mesmo layout e informa o progresso', async () => {
+    const client = new AnalysisClient(() => fakeWorker(envWith()));
+    const stages: string[] = [];
+    const o = await client.compare(
+      { file: new ArrayBuffer(4), mime: 'image/png' },
+      { file: new ArrayBuffer(4), mime: 'image/png' },
+      { onProgress: (s) => stages.push(s) },
+    );
+    expect(o.report.verdict).toBe('aprovado');
+    expect(o.report.pages[0].maxDeltaE).toBe(0);
+    expect(stages).toEqual(['reference', 'simulation', 'comparing']);
+  });
+
+  it('layouts diferentes chegam como LayoutMismatchError', async () => {
+    const client = new AnalysisClient(() => fakeWorker(envWith()));
+    await expect(
+      client.compare({ file: new ArrayBuffer(4), mime: 'image/png' }, { file: new ArrayBuffer(4), mime: 'image/tall' }),
+    ).rejects.toBeInstanceOf(LayoutMismatchError);
+  });
+
+  it('PDF CMYK sem perfil na comparação pede o perfil', async () => {
+    const client = new AnalysisClient(() => fakeWorker(makeEnv()));
+    await expect(
+      client.compare(
+        { file: fixture('cores-rgb.pdf'), mime: 'application/pdf' },
+        { file: fixture('cores-cmyk.pdf'), mime: 'application/pdf' },
+      ),
+    ).rejects.toBeInstanceOf(CmykProfileRequiredError);
   });
 });
 

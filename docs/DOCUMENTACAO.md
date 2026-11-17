@@ -1,6 +1,6 @@
 # ColorProof — Documentação técnica
 
-Estado do projeto em **30/10/2026** · Fases 1 a 6 implementadas (189 testes) · Pendências: PDFs reais de produção (Fase 4)
+Estado do projeto em **17/11/2026** · Fases 1 a 7 implementadas (210 testes) · Pendências: PDFs reais de produção (Fase 4)
 
 Este documento registra o que foi decidido, o que foi construído, como foi validado e o que ainda é limitação. Ele é escrito para servir de base à seção prática da monografia e para quem for continuar o código.
 
@@ -452,7 +452,52 @@ PDF RGB (6 cores sólidas): 5 aprovadas (ΔE00 de 0,09 a 2,73) e o azul sRGB 30/
 - É uma **simulação numérica** (L4), não laudo ISO 12647. Os limites de ΔE00 são decisão de projeto (D2) e as tolerâncias numéricas da norma continuam não verificadas.
 - O round-trip compara cores isoladas; não avalia cobertura de tinta total, sobreposição, nem fotografias como imagem (cores de degradê entram como médias, com aviso quando a dispersão passa de 5 ΔE00).
 - O filtro de participação mínima existe (`minPixelShare`), mas o valor padrão é 0 e não foi calibrado com PDFs reais.
-- Falta o Fluxo B (referência contra simulação) e o laudo exportável (Fase 7 e 8).
+- O laudo exportável e a interface final ficam para a Fase 8 (o Fluxo B está na seção 8e).
+
+---
+
+## 8e. Fase 7: Fluxo B (referência contra simulação)
+
+### 8e.1 O que foi implementado
+
+Entrada: duas versões do **mesmo layout** (PDF ou imagem): a referência (por exemplo, a arte aprovada em RGB) e a simulação (por exemplo, a versão em CMYK). Cada página é dividida numa grade de 32 × 32 regiões, em **coordenadas normalizadas** (a resolução das duas versões pode ser diferente). De cada região guarda-se a cor **mais frequente** (moda), não a média, porque a média de uma borda entre duas cores é uma terceira cor que não existe no arquivo. Região a região, calcula-se o ΔE00 entre a referência e a simulação; regiões que são papel nas duas versões não entram na conta.
+
+| Arquivo | Papel |
+|---|---|
+| `src/lib/compare/labGrid.ts` | Página rasterizada (RGBA ou CMYK de 8 bits) para grade de cores em Lab (CMYK passa pelo perfil, em lote) |
+| `src/lib/compare/flowB.ts` | `comparePage`/`compareGrids`: ΔE00 por região, média, p95, máximo, participação por faixa, piores regiões, veredito; `LayoutMismatchError` se as proporções da página diferem mais de 2% |
+| `src/lib/compare/compareFiles.ts` | De ponta a ponta: lê cada entrada pelo caminho certo (pdf.js em RGB, MuPDF com perfil em CMYK, imagem pelo navegador) e compara |
+| `src/lib/analysis/*` | O Worker ganhou a mensagem `compare`; o cliente, `compare()` |
+| `src/components/FlowBTest.tsx` | Tela provisória, com Worker e perfil próprios; trocar o perfil ou um dos arquivos refaz a comparação |
+| `src/lib/pdf/__fixtures__/par-simulacao-cmyk.pdf` | Par CMYK de `cores-rgb.pdf` (mesmo layout), com o CMYK que o ISO Coated v2 escolhe para cada cor |
+
+### 8e.2 Decisões desta fase (a confirmar pelo autor)
+
+- **Veredito geral pelo percentil 95**, não pelo pior caso. O pior caso é dominado por regiões de borda, onde poucos pixels de deslocamento entre as versões trocam a cor dominante da região. O pior caso e as cinco piores regiões são informados à parte, junto com a fração de uniformidade da região (baixa = região mista). As faixas de ΔE00 são as de D2 (3,0 e 4,0).
+- **Intent padrão: relativo**, não absoluto como a decisão D1 previu para o Fluxo B. A D1 pensava em comparar CMYK com os valores de caracterização da condição de impressão. Para referência de tela contra versão impressa, o intent absoluto faz o branco do papel (L\* 95, b\* −2 a −6) contar como diferença da tela (L\* 100) e eleva o ΔE00 de todo o material. A opção `intent: 'absolute'` continua disponível.
+
+### 8e.3 Resultados no par de teste (cores-rgb.pdf × par-simulacao-cmyk.pdf)
+
+ΔE00 médio por bloco de cor (vermelho, verde, azul, laranja, cinza, marrom); regiões de papel excluídas (768 regiões comparadas):
+
+| Perfil e intent | Vermelho | Verde | Azul | Laranja | Cinza | Marrom | Geral (p95) |
+|---|---|---|---|---|---|---|---|
+| ISO Coated v2, relativo | 1,20 | 0,48 | **9,38** | 2,76 | 1,04 | 2,21 | reprovado |
+| ISO Coated v2, absoluto | 2,41 | 2,74 | **10,01** | 5,59 | 3,10 | 2,00 | reprovado |
+| PSO Coated v3, relativo | 2,14 | 1,19 | **9,11** | 2,76 | 2,39 | 2,32 | reprovado |
+| PSO Coated v3, absoluto | 3,19 | 4,28 | **8,91** | 6,01 | 4,35 | 2,71 | reprovado |
+
+O CMYK do par foi calculado com o ISO Coated v2 (intent relativo): por isso o PSO Coated v3 dá desvios maiores nas outras cores (o mesmo número CMYK significa outra cor em outra condição de impressão). O azul sRGB 30/60/200 está fora do gamut do offset e é a pior região em todos os casos. Com intent absoluto, o laranja sobe de 2,76 para 5,59 e passa a reprovar, o que mostra o efeito do branco do papel e justifica o relativo como padrão.
+
+Verificado no Chromium (build de produção): RGB × RGB do mesmo arquivo dá ΔE00 0,00 e aprovado; RGB × CMYK sem perfil pede o perfil; ao escolher o perfil a comparação é refeita sozinha; sem erros no console.
+
+### 8e.4 Limites
+
+- O Fluxo B **exige o mesmo layout**. Não há alinhamento automático; páginas com proporção diferente são recusadas.
+- Elementos menores que uma região (cerca de 6,6 × 9,3 mm numa página A4 com grade 32) dentro de uma região dominada por outra cor, ou por papel, não aparecem. Texto fino não é avaliado.
+- A comparação é de **cor dominante por região**, não de imagem pixel a pixel nem de percepção de diferenças locais.
+- A tela do Fluxo B é provisória. Falta o laudo exportável e a interface final (Fase 8), e testar com pares de arquivos reais.
+- Uma mesma região pode virar "mista" por antialiasing; o aviso do laudo aparece quando as piores regiões têm menos de 50% de uniformidade.
 
 ---
 
@@ -514,7 +559,7 @@ PDF RGB (6 cores sólidas): 5 aprovadas (ΔE00 de 0,09 a 2,73) e o azul sRGB 30/
 | 4 | Extração de cor do PDF (pdf.js + clusterização) | Implementada e testada em Node e no navegador, com caminho híbrido RGB/CMYK (seção 8). Pendente: PDFs reais de produção |
 | 5 | Web Workers e medição de desempenho | Implementada e verificada no Chromium (seção 8b). Pendente: PDFs reais grandes |
 | 6 | Fluxo A: round-trip e laudo | Implementada e verificada no Chromium (seção 8d). Pendente: PDFs reais, laudo exportável |
-| 7 | Fluxo B: referência vs. simulação | Pendente |
+| 7 | Fluxo B: referência vs. simulação | Implementada e verificada no Chromium (seção 8e). Pendente: pares de arquivos reais |
 | 8 | Interface, validação final e escrita | Pendente |
 
 **Pendências (Fases 3 e 4):**
@@ -540,7 +585,7 @@ Requisitos: Node.js (versão LTS) e VS Code.
 cd colorproof        # a pasta que contém package.json
 npm install
 npm run dev          # http://localhost:5173
-npm test             # 189 testes com os dois perfis locais; sem eles, os que dependem dos .icc são ignorados
+npm test             # 210 testes com os dois perfis locais; sem eles, os que dependem dos .icc são ignorados
 ```
 
 **Perfis ICC.** Baixe `pso-coated_v3.zip` e `eci_offset_2009.zip` em https://eci.org/doku.php_id=en:downloads.html (seção *ICC profiles from ECI*), extraia e coloque `PSOcoated_v3.icc` e `ISOcoated_v2_eci.icc` em `public/profiles/`. Os `.icc` são ignorados pelo Git por causa da licença da ECI (seção 7.5). Sem os arquivos, os testes que dependem deles são ignorados.

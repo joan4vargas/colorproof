@@ -9,9 +9,11 @@
 // O Worker é injetado por uma função, o que permite testar o cliente em Node
 // com um Worker de mentira.
 
+import type { CompareOutcome, CompareStage } from '../compare/compareFiles';
+import { LayoutMismatchError } from '../compare/flowB';
 import type { FlowAReport } from '../report/flowA';
 import { CmykProfileRequiredError, type AnalysisStage, type PdfAnalysis } from '../pdf/analyzePdf';
-import type { AnalysisParams, WorkerRequest, WorkerResponse } from './protocol';
+import type { AnalysisParams, CompareParams, WorkerRequest, WorkerResponse } from './protocol';
 
 export interface WorkerLike {
   postMessage(message: WorkerRequest, transfer?: Transferable[]): void;
@@ -34,10 +36,16 @@ export interface AnalyzeOptions extends AnalysisParams {
   onProgress?: (stage: AnalysisStage) => void;
 }
 
+export interface CompareOptions extends CompareParams {
+  onProgress?: (stage: CompareStage) => void;
+}
+
+type ProgressFn = (stage: AnalysisStage | CompareStage) => void;
+
 interface Pending {
   resolve: (value: never) => void;
   reject: (reason: Error) => void;
-  onProgress?: (stage: AnalysisStage) => void;
+  onProgress?: (stage: AnalysisStage | CompareStage) => void;
 }
 
 const toArrayBuffer = (data: ArrayBuffer | Uint8Array): ArrayBuffer =>
@@ -82,7 +90,23 @@ export class AnalysisClient {
     return this.request<AnalysisOutcome>(
       (id) => ({ id, type: 'analyzePdf', file: buffer, params }),
       [buffer],
-      onProgress,
+      onProgress as ProgressFn | undefined,
+    );
+  }
+
+  /** Fluxo B: compara a referência com a simulação (PDF ou imagem; mesmo layout). */
+  compare(
+    reference: { file: ArrayBuffer | Uint8Array; mime: string },
+    simulation: { file: ArrayBuffer | Uint8Array; mime: string },
+    options: CompareOptions = {},
+  ): Promise<CompareOutcome> {
+    const { onProgress, ...params } = options;
+    const ref = { file: toArrayBuffer(reference.file), mime: reference.mime };
+    const sim = { file: toArrayBuffer(simulation.file), mime: simulation.mime };
+    return this.request<CompareOutcome>(
+      (id) => ({ id, type: 'compare', reference: ref, simulation: sim, params }),
+      [ref.file, sim.file],
+      onProgress as ProgressFn | undefined,
     );
   }
 
@@ -93,7 +117,7 @@ export class AnalysisClient {
     return this.request<AnalysisOutcome>(
       (id) => ({ id, type: 'analyzeImage', file: buffer, mime, params }),
       [buffer],
-      onProgress,
+      onProgress as ProgressFn | undefined,
     );
   }
 
@@ -149,21 +173,26 @@ export class AnalysisClient {
       pending.reject(
         response.name === 'CmykProfileRequiredError'
           ? new CmykProfileRequiredError()
-          : Object.assign(new Error(response.message), { name: response.name }),
+          : Object.assign(
+              response.name === 'LayoutMismatchError' ? Object.create(LayoutMismatchError.prototype) : new Error(),
+              { message: response.message, name: response.name },
+            ),
       );
       return;
     }
     (pending.resolve as (v: unknown) => void)(
       response.type === 'result'
         ? { ...response.analysis, report: response.report }
-        : response.description,
+        : response.type === 'compareResult'
+          ? response.outcome
+          : response.description,
     );
   }
 
   private request<T>(
     build: (id: number) => WorkerRequest,
     transfer: Transferable[],
-    onProgress?: (stage: AnalysisStage) => void,
+    onProgress?: (stage: AnalysisStage | CompareStage) => void,
   ): Promise<T> {
     const worker = this.ensureWorker();
     const id = this.nextId++;

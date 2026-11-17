@@ -35,6 +35,13 @@ gera("cores-rgb.pdf", RGB, lambda v: Color(v[0] / 255, v[1] / 255, v[2] / 255))
 CMYK = [(100, 0, 0, 0), (0, 100, 0, 0), (0, 0, 100, 0), (0, 0, 0, 100), (40, 70, 0, 10), (0, 50, 100, 0)]
 gera("cores-cmyk.pdf", CMYK, lambda v: CMYKColor(v[0] / 100, v[1] / 100, v[2] / 100, v[3] / 100))
 
+# Par da Fase 7 (Fluxo B): mesmo layout de cores-rgb.pdf, em CMYK. Os valores são o que
+# o ISO Coated v2 (ECI) escolhe para cada cor de RGB (sRGB -> CMYK, intent relativo,
+# arredondado para inteiros), calculados com o motor do projeto. O azul (30, 60, 200)
+# está fora do gamut do perfil e deve aparecer como a região mais diferente.
+PAR_CMYK = [(3, 100, 100, 13), (81, 3, 99, 12), (99, 96, 0, 0), (0, 60, 100, 0), (48, 38, 38, 24), (10, 68, 100, 47)]
+gera("par-simulacao-cmyk.pdf", PAR_CMYK, lambda v: CMYKColor(v[0] / 100, v[1] / 100, v[2] / 100, v[3] / 100))
+
 # Misto: 2 retângulos em RGB e 2 em CMYK (usado para testar o aviso de PDF misto).
 c = canvas.Canvas(str(OUT / "misto.pdf"), pagesize=(200, 100), invariant=1, pageCompression=0)
 c.setFillColor(Color(200 / 255, 30 / 255, 30 / 255)); c.rect(0, 50, 50, 50, stroke=0, fill=1)

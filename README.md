@@ -100,7 +100,8 @@ dependem de perfil são ignorados (os demais continuam rodando).
       progresso, cancelamento e tempos por etapa (`docs/DOCUMENTACAO.md`, 8b)
 - [x] **Fase 6** — Fluxo A: round-trip e veredito por faixas de ΔE00 (foco
       principal do TCC); falta testar com PDFs reais e exportar o laudo
-- [ ] **Fase 7** — Fluxo B: referência vs. simulação (complementar)
+- [x] **Fase 7** — Fluxo B: referência vs. simulação (complementar): duas
+      versões do mesmo layout comparadas por região em ΔE00
 - [ ] **Fase 8** — Interface, validação final e escrita
 
 ## Decisões de escopo relevantes para a monografia

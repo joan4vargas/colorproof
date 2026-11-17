@@ -4,7 +4,7 @@ Este arquivo resume onde o projeto parou e como continuar. A documentação téc
 
 ## Estado do código
 
-Fases 1 a 6 implementadas, 189 testes passando (com os dois perfis). Conferir `git log` para saber o que já foi enviado ao GitHub.
+Fases 1 a 7 implementadas, 210 testes passando (com os dois perfis). Conferir `git log` para saber o que já foi enviado ao GitHub.
 
 | Fase | Situação |
 |---|---|
@@ -13,13 +13,14 @@ Fases 1 a 6 implementadas, 189 testes passando (com os dois perfis). Conferir `g
 | 4 | Extração de cores do PDF, caminho híbrido: PDF sem CMYK pelo pdf.js (sRGB); PDF com CMYK pelo MuPDF, que lê os números C, M, Y, K do arquivo e o perfil ICC os leva a Lab. Testada em Node e no navegador |
 | 5 | Análise inteira em Web Worker (pdf.js, MuPDF, lcms), com progresso, cancelamento e tempos por etapa. Verificada no Chromium. Pendente: PDFs reais grandes e memória |
 | 6 | Fluxo A: `evaluateFlowA` (round-trip B2A→A2B, ΔE00, veredito 3,0/4,0), laudo na tela, BPC medido e mantido desligado. Verificada no Chromium (seção 8d) |
-| 7 e 8 | Pendentes: Fluxo B (referência vs. simulação); interface final, laudo exportável e escrita |
+| 7 | Fluxo B: duas versões do mesmo layout, grade 32×32, ΔE00 por região, veredito pelo p95; intent relativo por padrão (diverge do D1, ver 8e.2, a confirmar). Verificada no Chromium (seção 8e) |
+| 8 | Pendente: interface final, laudo exportável, validação final e escrita |
 
 ## Como retomar em outro computador
 
 1. `git clone https://github.com/joan4vargas/colorproof.git`, entrar na pasta e `npm install`.
 2. Baixar os perfis em https://eci.org/doku.php_id=en:downloads.html (`pso-coated_v3.zip` e `eci_offset_2009.zip`) e colocar `PSOcoated_v3.icc` e `ISOcoated_v2_eci.icc` em `public/profiles/`. Os `.icc` não vão para o Git (licença da ECI; `*.icc` no `.gitignore`). Guardar uma cópia deles fora do repositório.
-3. `npm test`: com os dois perfis, 189 passam; sem eles, os testes que dependem dos `.icc` são ignorados.
+3. `npm test`: com os dois perfis, 210 passam; sem eles, os testes que dependem dos `.icc` são ignorados.
 4. `npm run dev` e abrir http://localhost:5173/ para os testes provisórios na tela.
 5. Configurar a identidade do Git só neste repositório: `git config user.name "Seu Nome"` e `git config user.email "seu-email"`.
 6. Em PC compartilhado, apagar o login do GitHub no Gerenciador de Credenciais do Windows ao terminar.
@@ -32,6 +33,7 @@ Fases 1 a 6 implementadas, 189 testes passando (com os dois perfis). Conferir `g
 
 ## Decisões em aberto
 
+- **Fluxo B (8e.2):** confirmar veredito pelo p95 das regiões e intent relativo como padrão (a D1 previa absoluto).
 - **Licença da ECI no site publicado:** servir o `.icc` aos usuários exige permissão escrita da ECI; alternativa é o usuário fornecer o perfil (L11).
 - **k e filtro de participação mínima** das cores dominantes em arquivos reais.
 
