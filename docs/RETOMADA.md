@@ -1,23 +1,24 @@
-# ColorProof: ponto de retomada (30/10/2026)
+# ColorProof: ponto de retomada (17/11/2026)
 
 Este arquivo resume onde o projeto parou e como continuar. A documentação técnica completa está em `DOCUMENTACAO.md`.
 
 ## Estado do código
 
-Último commit no momento desta anotação: `07a3db2` ("Fase 4: extração de cores do PDF, caminho híbrido"), com 159 testes passando.
+Fases 1 a 5 implementadas, 174 testes passando (com os dois perfis). A Fase 5 está no commit "Fase 5: análise em Web Worker".
 
 | Fase | Situação |
 |---|---|
 | 1 e 2 | Concluídas (núcleo colorimétrico, 54 testes) |
-| 3 | Motor de cor com lcms-wasm. Testado em Node e no navegador com PSO Coated v3 e ISO Coated v2. Falta verificar em Web Worker (Fase 5) |
+| 3 | Motor de cor com lcms-wasm. Testado em Node e no navegador com PSO Coated v3 e ISO Coated v2. Verificado também em Web Worker (Fase 5) |
 | 4 | Extração de cores do PDF, caminho híbrido: PDF sem CMYK pelo pdf.js (sRGB); PDF com CMYK pelo MuPDF, que lê os números C, M, Y, K do arquivo e o perfil ICC os leva a Lab. Testada em Node e no navegador |
-| 5 a 8 | Pendentes: Web Workers e desempenho; Fluxo A (round-trip e laudo); Fluxo B (referência vs. simulação); interface e escrita |
+| 5 | Análise inteira em Web Worker (pdf.js, MuPDF, lcms), com progresso, cancelamento e tempos por etapa. Verificada no Chromium. Pendente: PDFs reais grandes e memória |
+| 6 a 8 | Pendentes: Fluxo A (round-trip e laudo); Fluxo B (referência vs. simulação); interface e escrita |
 
 ## Como retomar em outro computador
 
 1. `git clone https://github.com/joan4vargas/colorproof.git`, entrar na pasta e `npm install`.
 2. Baixar os perfis em https://eci.org/doku.php_id=en:downloads.html (`pso-coated_v3.zip` e `eci_offset_2009.zip`) e colocar `PSOcoated_v3.icc` e `ISOcoated_v2_eci.icc` em `public/profiles/`. Os `.icc` não vão para o Git (licença da ECI; `*.icc` no `.gitignore`). Guardar uma cópia deles fora do repositório.
-3. `npm test`: com os dois perfis, 159 passam; sem eles, 123 passam e 36 são ignorados.
+3. `npm test`: com os dois perfis, 174 passam; sem eles, os testes que dependem dos `.icc` são ignorados.
 4. `npm run dev` e abrir http://localhost:5173/ para os testes provisórios na tela.
 5. Configurar a identidade do Git só neste repositório: `git config user.name "Seu Nome"` e `git config user.email "seu-email"`.
 6. Em PC compartilhado, apagar o login do GitHub no Gerenciador de Credenciais do Windows ao terminar.
@@ -33,7 +34,7 @@ Este arquivo resume onde o projeto parou e como continuar. A documentação téc
 ## Pendências técnicas
 
 - Testar com PDFs reais de produção (InDesign, Illustrator, Canva): transparência, overprint, spot colors, degradês.
-- Verificar o motor de cor dentro de um Web Worker e medir desempenho (Fase 5).
+- Medir desempenho com PDFs reais grandes (tempo, memória, travamento da interface) e revisar os limites de páginas e pixels.
 - Validação independente do motor de cor (ArgyllCMS, `xicclu`); hoje a referência é o dado do próprio criador do perfil.
 - Leitura do `/OutputIntents` do PDF (L6); `src/lib/pdf/outputIntent.ts` ainda lança erro explícito.
 - Ajustar o comentário da matriz sRGB em `colorimetry.ts` (variante de alta precisão, não a da IEC).

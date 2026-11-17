@@ -45,7 +45,8 @@ src/
 
   scripts/                gerar-fixtures-pdf.py (PDFs de teste; usa reportlab)
 
-  workers/                Fase 5 — Web Workers (a criar)
+  workers/                Fase 5 — Web Worker de análise
+  lib/analysis/           Protocolo, handler e cliente do Worker
 
   types/color.ts          Tipos base: RGB, XYZ, Lab, iluminantes D65/D50
 
@@ -88,15 +89,15 @@ dependem de perfil são ignorados (os demais continuam rodando).
 
 - [x] **Fase 1** — Setup e fundamentação
 - [x] **Fase 2** — Núcleo matemático colorimétrico (54/54 testes passando)
-- [ ] **Fase 3** — Integração do motor de cor (lcms2-wasm): implementada,
-      testada em Node e no navegador com PSO Coated v3 e ISO Coated v2; falta
-      verificar em Web Worker (Fase 5)
+- [x] **Fase 3** — Integração do motor de cor (lcms2-wasm): testada em Node,
+      no navegador e em Web Worker com PSO Coated v3 e ISO Coated v2
 - [x] **Fase 4** — Extração de cor do PDF. Híbrido: PDFs sem CMYK pelo
       pdf.js (sRGB); PDFs com CMYK pelo MuPDF, que lê os números C, M, Y, K do
       arquivo (o pdf.js os converte de forma aproximada, 3,7 a 10,9 ΔE00 de
       desvio). Testada em Node e no navegador. Atenção: o MuPDF é AGPL-3.0;
       ver `docs/DOCUMENTACAO.md`, seção 8 e L14
-- [ ] **Fase 5** — Web Workers e performance
+- [x] **Fase 5** — Web Workers e performance: análise inteira em Worker, com
+      progresso, cancelamento e tempos por etapa (`docs/DOCUMENTACAO.md`, 8b)
 - [ ] **Fase 6** — Fluxo A: round-trip (foco principal do TCC)
 - [ ] **Fase 7** — Fluxo B: referência vs. simulação (complementar)
 - [ ] **Fase 8** — Interface, validação final e escrita

@@ -1,18 +1,18 @@
-// Teste provisório da Fase 4 no navegador (será substituído pela UI da Fase 8).
+// Teste provisório das Fases 4 e 5 no navegador (será substituído pela UI da Fase 8).
 //
 // 1. (opcional até ser preciso) escolha um perfil CMYK .icc;
 // 2. escolha um PDF ou imagem.
 //
+// A análise roda num Web Worker, então a tela não trava e dá para cancelar.
 // PDF sem CMYK: lido em sRGB pelo pdf.js. PDF com CMYK: lido em CMYK pelo MuPDF
-// e levado a Lab pelo perfil. Tudo roda no navegador; nada é enviado a servidor.
+// e levado a Lab pelo perfil. Nada é enviado a servidor.
 
-import { useRef, useState } from 'react';
-import wasmUrl from 'lcms-wasm/dist/lcms.wasm?url';
+import { useEffect, useRef, useState } from 'react';
 import { labD50ToRgbClipped } from '../core/colorimetry';
-import { createColorEngine, type IccProfileHandle } from '../lib/icc/colorEngine';
-import { analyzePdfInBrowser, rasterizeImageInBrowser } from '../lib/pdf/browserPdf';
-import { CmykProfileRequiredError, type PdfAnalysis } from '../lib/pdf/analyzePdf';
-import { extractDominantColors, type ColorExtraction } from '../lib/sampling/dominantColors';
+import { AnalysisCancelledError, type AnalysisClient } from '../lib/analysis/analysisClient';
+import { createBrowserAnalysisClient } from '../lib/analysis/browserAnalysis';
+import { CmykProfileRequiredError, type AnalysisStage, type PdfAnalysis } from '../lib/pdf/analyzePdf';
+import type { ColorExtraction } from '../lib/sampling/dominantColors';
 import type { Lab, RGB } from '../types/color';
 
 interface Row {
@@ -26,14 +26,19 @@ interface Row {
 interface Result {
   arquivo: string;
   detalhe: string;
-  ms: number;
   caminho: string;
-  avisos: string[];
+  analysis: PdfAnalysis;
   linhas: Row[];
   totalPixels: number;
   paperPixels: number;
   distinctColors: number;
 }
+
+const STAGE_LABEL: Record<AnalysisStage, string> = {
+  inspecting: 'Inspecionando espaços de cor…',
+  rendering: 'Lendo as páginas…',
+  clustering: 'Agrupando as cores…',
+};
 
 const pct = (v: number) => `${(v * 100).toFixed(1)}%`;
 const fmtCmyk = (c: { c: number; m: number; y: number; k: number }) =>
@@ -55,30 +60,29 @@ function fromRgb(e: ColorExtraction): Pick<Result, 'linhas' | 'totalPixels' | 'p
 }
 
 export default function PdfColorTest() {
-  const profile = useRef<IccProfileHandle | null>(null);
+  const client = useRef<AnalysisClient | null>(null);
   const [profileName, setProfileName] = useState<string | null>(null);
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [stage, setStage] = useState<AnalysisStage | null>(null);
   const [busy, setBusy] = useState(false);
   // PDF que parou por falta de perfil: é reanalisado quando o perfil for escolhido.
   const waitingForProfile = useRef<File | null>(null);
+
+  const getClient = () => (client.current ??= createBrowserAnalysisClient());
+  useEffect(() => () => client.current?.dispose(), []);
 
   async function onProfile(file: File | undefined) {
     setError(null);
     if (!file) return;
     try {
-      const engine = await createColorEngine({ wasmUrl });
-      profile.current?.libera();
-      profile.current = await engine.loadProfile(new Uint8Array(await file.arrayBuffer()));
-      setProfileName(profile.current.description);
+      setProfileName(await getClient().setProfile(await file.arrayBuffer()));
       if (waitingForProfile.current) {
         const pending = waitingForProfile.current;
         waitingForProfile.current = null;
         await onFile(pending);
       }
     } catch (e) {
-      profile.current = null;
-      setProfileName(null);
       setError(e instanceof Error ? e.message : String(e));
     }
   }
@@ -89,70 +93,80 @@ export default function PdfColorTest() {
     waitingForProfile.current = null;
     if (!file) return;
     setBusy(true);
+    setStage(null);
     try {
-      const t0 = performance.now();
       const isPdf = file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf');
-      let partial: Pick<Result, 'linhas' | 'totalPixels' | 'paperPixels' | 'distinctColors'>;
-      let detalhe: string;
-      let caminho: string;
-      let avisos: string[] = [];
-      if (isPdf) {
-        const a: PdfAnalysis = await analyzePdfInBrowser(await file.arrayBuffer(), {
-          profile: profile.current ?? undefined,
-          k: 8,
+      const data = await file.arrayBuffer();
+      const options = { k: 8, onProgress: setStage };
+      const analysis = isPdf
+        ? await getClient().analyzePdf(data, options)
+        : await getClient().analyzeImage(data, file.type || 'image/png', options);
+
+      const detalhe = !isPdf
+        ? 'imagem'
+        : analysis.analyzedPages < analysis.numPages
+          ? `${analysis.analyzedPages} de ${analysis.numPages} páginas`
+          : `${analysis.numPages} página(s)`;
+      if (analysis.path === 'cmyk' && analysis.cmyk) {
+        setResult({
+          arquivo: file.name,
+          detalhe,
+          caminho: `CMYK lido do arquivo (MuPDF), Lab pelo perfil ${getClient().profile ?? ''}`,
+          analysis,
+          linhas: analysis.cmyk.colors.map((c) => ({
+            rgb: labD50ToRgbClipped(c.lab),
+            nome: `CMYK ${fmtCmyk(c.cmyk)}`,
+            pixelShare: c.pixelShare,
+            lab: c.lab,
+            spread: c.spread,
+          })),
+          totalPixels: analysis.cmyk.totalPixels,
+          paperPixels: analysis.cmyk.paperPixels,
+          distinctColors: analysis.cmyk.distinctColors,
         });
-        avisos = a.warnings;
-        detalhe = a.analyzedPages < a.numPages ? `${a.analyzedPages} de ${a.numPages} páginas` : `${a.numPages} página(s)`;
-        if (a.path === 'cmyk' && a.cmyk) {
-          caminho = `CMYK lido do arquivo (MuPDF), Lab pelo perfil ${profile.current?.description ?? ""}`;
-          partial = {
-            linhas: a.cmyk.colors.map((c) => ({
-              rgb: labD50ToRgbClipped(c.lab),
-              nome: `CMYK ${fmtCmyk(c.cmyk)}`,
-              pixelShare: c.pixelShare,
-              lab: c.lab,
-              spread: c.spread,
-            })),
-            totalPixels: a.cmyk.totalPixels,
-            paperPixels: a.cmyk.paperPixels,
-            distinctColors: a.cmyk.distinctColors,
-          };
-        } else {
-          caminho = 'sRGB (pdf.js)';
-          partial = fromRgb(a.rgb!);
-        }
       } else {
-        const img = await rasterizeImageInBrowser(file);
-        detalhe = 'imagem';
-        caminho = 'sRGB (navegador)';
-        partial = fromRgb(extractDominantColors(img.data, { k: 8 }));
+        setResult({
+          arquivo: file.name,
+          detalhe,
+          caminho: isPdf ? 'sRGB (pdf.js)' : 'sRGB (navegador)',
+          analysis,
+          ...fromRgb(analysis.rgb!),
+        });
       }
-      setResult({ arquivo: file.name, detalhe, ms: performance.now() - t0, caminho, avisos, ...partial });
     } catch (e) {
-      if (e instanceof CmykProfileRequiredError) waitingForProfile.current = file;
-      setError(
-        e instanceof CmykProfileRequiredError
-          ? `${e.message} Escolha o perfil no primeiro campo e o PDF será analisado.`
-          : e instanceof Error
-            ? e.message
-            : String(e),
-      );
+      if (e instanceof AnalysisCancelledError) {
+        setError('Análise cancelada.');
+      } else {
+        if (e instanceof CmykProfileRequiredError) waitingForProfile.current = file;
+        setError(
+          e instanceof CmykProfileRequiredError
+            ? `${e.message} Escolha o perfil no primeiro campo e o PDF será analisado.`
+            : e instanceof Error
+              ? e.message
+              : String(e),
+        );
+      }
     } finally {
       setBusy(false);
+      setStage(null);
     }
   }
 
+  const t = result?.analysis.timings;
   return (
     <section>
       <h2>Teste da extração de cores (provisório)</h2>
       <p>
-        Tudo roda no seu navegador; nada é enviado a servidor. O papel branco é descartado.
-        PDFs com CMYK precisam de um perfil de saída (primeiro campo); os demais não.
+        Tudo roda no seu navegador, num Web Worker (a tela não trava); nada é enviado a servidor. O papel
+        branco é descartado. PDFs com CMYK precisam de um perfil de saída (primeiro campo); os demais não.
       </p>
       <p>
         <label>
           Perfil CMYK (.icc):{' '}
-          <input type="file" accept=".icc,.icm" onChange={(e) => {
+          <input
+            type="file"
+            accept=".icc,.icm"
+            onChange={(e) => {
               const f = e.target.files?.[0];
               e.target.value = ''; // permite escolher o mesmo arquivo de novo
               void onProfile(f);
@@ -175,17 +189,27 @@ export default function PdfColorTest() {
           />
         </label>
       </p>
-      {busy && <p>Processando…</p>}
+      {busy && (
+        <p role="status">
+          {stage ? STAGE_LABEL[stage] : 'Enviando ao Worker…'}{' '}
+          <button type="button" onClick={() => client.current?.cancel()}>
+            Cancelar
+          </button>
+        </p>
+      )}
       {error && <p role="alert">Erro: {error}</p>}
-      {result && (
+      {result && t && (
         <div>
           <p>
-            <strong>{result.arquivo}</strong> · {result.detalhe} · {result.ms.toFixed(0)} ms ·{' '}
-            {result.totalPixels.toLocaleString('pt-BR')} px, {pct(result.paperPixels / result.totalPixels)} de papel ·{' '}
+            <strong>{result.arquivo}</strong> · {result.detalhe} · {result.totalPixels.toLocaleString('pt-BR')} px,{' '}
+            {pct(result.paperPixels / result.totalPixels)} de papel ·{' '}
             {result.distinctColors.toLocaleString('pt-BR')} cores distintas
           </p>
-          <p>Leitura: {result.caminho}</p>
-          {result.avisos.map((w, i) => (
+          <p>
+            Leitura: {result.caminho} · tempo total {t.totalMs.toFixed(0)} ms (inspeção {t.inspectMs.toFixed(0)},
+            leitura das páginas {t.renderMs.toFixed(0)}, agrupamento {t.clusterMs.toFixed(0)})
+          </p>
+          {result.analysis.warnings.map((w, i) => (
             <p key={i} role="status">
               Aviso: {w}
             </p>

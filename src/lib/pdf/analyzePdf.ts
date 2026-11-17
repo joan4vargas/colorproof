@@ -41,6 +41,19 @@ export interface AnalyzePdfOptions {
   scale?: number;
   maxPages?: number;
   maxPixelsPerPage?: number;
+  /** Chamada ao começar cada etapa (para mostrar progresso). */
+  onProgress?: (stage: AnalysisStage) => void;
+}
+
+/** Etapas da análise, na ordem, para mostrar progresso. */
+export type AnalysisStage = 'inspecting' | 'rendering' | 'clustering';
+
+/** Tempo de cada etapa, em milissegundos. */
+export interface AnalysisTimings {
+  inspectMs: number;
+  renderMs: number;
+  clusterMs: number;
+  totalMs: number;
 }
 
 export interface PdfAnalysis {
@@ -50,6 +63,7 @@ export interface PdfAnalysis {
   /** Uso de espaços de cor, ou null se a inspeção falhou. */
   usage: PdfColorUsage | null;
   warnings: string[];
+  timings: AnalysisTimings;
   rgb?: ColorExtraction;
   cmyk?: CmykExtraction;
 }
@@ -62,14 +76,18 @@ export class CmykProfileRequiredError extends Error {
   }
 }
 
+const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
+
 export async function analyzePdf(
   file: ArrayBuffer | Uint8Array,
   deps: AnalyzePdfDeps,
   options: AnalyzePdfOptions = {},
 ): Promise<PdfAnalysis> {
-  const { profile, intent, k = 8, scale, maxPages = 10, maxPixelsPerPage } = options;
+  const { profile, intent, k = 8, scale, maxPages = 10, maxPixelsPerPage, onProgress } = options;
   const warnings: string[] = [];
+  const t0 = now();
 
+  onProgress?.('inspecting');
   let usage: PdfColorUsage | null = null;
   let mupdf: MuPdf | null = null;
   try {
@@ -81,6 +99,7 @@ export async function analyzePdf(
         'o arquivo foi lido como RGB e, se for CMYK, os valores são aproximados.',
     );
   }
+  const t1 = now();
 
   if (usage?.hasCmyk && mupdf) {
     if (!profile) throw new CmykProfileRequiredError();
@@ -93,24 +112,36 @@ export async function analyzePdf(
     if (usage.total.other > 0) {
       warnings.push('O PDF tem degradês, spot colors ou espaços de cor especiais, lidos como o MuPDF os converte.');
     }
+    onProgress?.('rendering');
     const rendered = renderPdfPagesCmyk(mupdf, file, { scale, maxPages, maxPixelsPerPage });
+    const t2 = now();
+    onProgress?.('clustering');
+    const cmyk = extractDominantCmykColors(concatCmykPages(rendered.pages), profile, { k, intent });
+    const t3 = now();
     return {
       path: 'cmyk',
       numPages: rendered.numPages,
       analyzedPages: rendered.pages.length,
       usage,
       warnings,
-      cmyk: extractDominantCmykColors(concatCmykPages(rendered.pages), profile, { k, intent }),
+      timings: { inspectMs: t1 - t0, renderMs: t2 - t1, clusterMs: t3 - t2, totalMs: t3 - t0 },
+      cmyk,
     };
   }
 
+  onProgress?.('rendering');
   const rendered = await renderPdfPages(file, { ...deps.rgb, scale, maxPages, maxPixelsPerPage });
+  const t2 = now();
+  onProgress?.('clustering');
+  const rgb = extractDominantColors(concatPages(rendered.pages), { k });
+  const t3 = now();
   return {
     path: 'rgb',
     numPages: rendered.numPages,
     analyzedPages: rendered.pages.length,
     usage,
     warnings,
-    rgb: extractDominantColors(concatPages(rendered.pages), { k }),
+    timings: { inspectMs: t1 - t0, renderMs: t2 - t1, clusterMs: t3 - t2, totalMs: t3 - t0 },
+    rgb,
   };
 }

@@ -1,6 +1,6 @@
 # ColorProof — Documentação técnica
 
-Estado do projeto em **30/10/2026** · Fases 1 a 4 implementadas (159 testes) · Pendências: Web Worker (Fase 3), PDFs reais de produção (Fase 4), decisão de licença (L14)
+Estado do projeto em **30/10/2026** · Fases 1 a 5 implementadas (174 testes) · Pendências: PDFs reais de produção (Fase 4), decisão de licença (L14)
 
 Este documento registra o que foi decidido, o que foi construído, como foi validado e o que ainda é limitação. Ele é escrito para servir de base à seção prática da monografia e para quem for continuar o código.
 
@@ -252,7 +252,7 @@ Papel e sólidos C, M, Y e K em intent absoluto coincidem com a tabela em até �
 
 - A referência dos testes é o dado do **criador do perfil**. Não é validação independente. A conferência com ArgyllCMS (`xicclu`) continua pendente.
 - Foram testados dois perfis (PSO Coated v3 e ISO Coated v2). Outras condições de impressão não foram avaliadas.
-- Os testes automatizados rodam em Node. O build de produção compila e empacota o `.wasm`, mas o carregamento **no navegador** e dentro de um **Web Worker** ainda não foi verificado. O teste provisório na tela (`ProfileSmokeTest`) serve para a verificação no navegador.
+- Os testes automatizados rodam em Node. O build de produção compila e empacota o `.wasm`, mas o carregamento no navegador foi verificado (teste provisório `ProfileSmokeTest`) e dentro de um **Web Worker** na Fase 5 (seção 8b).
 - Só perfis CMYK de saída são aceitos. Perfil de monitor entra em fase posterior.
 
 ---
@@ -342,7 +342,53 @@ O MuPDF compõe a página direto num pixmap CMYK de 8 bits (255 = 100% de tinta;
 - **Spot colors e degradês** são lidos como o MuPDF os converte. O sistema avisa quando existem.
 - **Os PDFs de teste são sintéticos.** Falta testar com PDFs reais de produção (InDesign, Illustrator, Canva).
 - Leitura do `/OutputIntents` (L6) continua não implementada. `outputIntent.ts` mantém o erro explícito.
-- O limite de 10 páginas e de 4 milhões de pixels por página é provisório. A Fase 5 deve medir e mover o trabalho para um Web Worker.
+- O limite de 10 páginas e de 4 milhões de pixels por página continua valendo; a Fase 5 moveu o trabalho para um Web Worker e mediu os tempos (seção 8b), mas não mediu PDFs reais grandes.
+
+---
+
+## 8b. Fase 5: Web Worker e desempenho
+
+### 8b.1 Arquitetura
+
+Toda a análise (pdf.js, MuPDF, lcms-wasm, clusterização) roda em **um Web Worker de módulo** (`worker.format: 'es'` no Vite, porque o MuPDF usa top-level await e o formato padrão `iife` não aceita). A thread principal só recebe progresso e resultado.
+
+| Arquivo | Papel |
+|---|---|
+| `src/lib/analysis/protocol.ts` | Mensagens entre a página e o Worker (`loadProfile`, `analyzePdf`, `analyzeImage` e as respostas `profileLoaded`, `progress`, `result`, `error`) |
+| `src/lib/analysis/analysisHandler.ts` | Lógica do Worker sem depender do navegador (testável em Node). Processa as mensagens **em série**, então um `loadProfile` sempre termina antes da análise seguinte |
+| `src/lib/analysis/analysisClient.ts` | Lado da página: promessas, progresso por etapa, `cancel()` (encerra o Worker e rejeita o que estava pendente; o perfil é reenviado ao Worker novo) |
+| `src/workers/analysis.worker.ts` | Liga o handler ao navegador: `OffscreenCanvas`, Worker interno do pdf.js, `.wasm` do lcms por URL, `import('mupdf')` sob demanda, imagens por `createImageBitmap` |
+| `src/lib/analysis/browserAnalysis.ts` | Cria o Worker (`new Worker(new URL(...), { type: 'module' })`) |
+
+O PDF é enviado ao Worker como **cópia transferida** (o `ArrayBuffer` do chamador não é desanexado). `analyzePdf` passou a devolver `timings` (inspeção, leitura das páginas, agrupamento, total) e a avisar a etapa (`inspecting`, `rendering`, `clustering`).
+
+### 8b.2 Verificação
+
+- 15 testes novos em Node (`src/lib/analysis/__tests__/analysis.test.ts`), com um Worker de mentira que copia as mensagens como um Worker real: ordem das etapas, perfil obrigatório (`CmykProfileRequiredError` reconstruído do outro lado), perfil inválido, imagens, erro de uma análise sem derrubar a seguinte, ordem `loadProfile` antes da análise, cancelamento com reenvio do perfil, buffer do chamador preservado.
+- **No Chromium (Playwright, build de produção):** pdf.js, MuPDF e lcms-wasm funcionam dentro do Worker, sem erros no console. PDF RGB: 6 cores de 12,5 % cada; PDF CMYK sem perfil pede o perfil; com ISO Coated v2 é reanalisado sozinho e dá os mesmos valores da versão na thread principal (CMYK 100/0/0/0 → Lab 58,2 / −38,7 / −50,3).
+
+### 8b.3 Tempos medidos
+
+Node 22 (sandbox), perfil ISO Coated v2 carregado, PDFs sintéticos A4 com 60 retângulos coloridos por página, k = 8, uma execução por caso (primeira chamada inclui carga do MuPDF/pdf.js, por isso varia). Os PDFs de teste ficam em `.bench/` (fora do Git).
+
+| PDF | scale | caminho | total (ms) | inspeção | leitura | agrupamento |
+|---|---|---|---|---|---|---|
+| RGB, 1 pág. | 1 | pdf.js | 186 | 79 | 87 | 20 |
+| RGB, 1 pág. | 2 | pdf.js | 74 | 2 | 23 | 49 |
+| RGB, 10 pág. | 1 | pdf.js | 226 | 21 | 61 | 144 |
+| RGB, 10 pág. | 2 | pdf.js | 525 | 9 | 134 | 382 |
+| CMYK, 1 pág. | 1 | MuPDF | 62 | 2 | 8 | 53 |
+| CMYK, 1 pág. | 2 | MuPDF | 68 | 4 | 19 | 45 |
+| CMYK, 10 pág. | 1 | MuPDF | 166 | 6 | 31 | 129 |
+| CMYK, 10 pág. | 2 | MuPDF | 554 | 4 | 106 | 443 |
+
+Leitura: com gráficos vetoriais simples o custo dominante é a **clusterização** (cresce com o número de cores distintas e de páginas), não a leitura. Nos testes anteriores com fotografia A4 (282 mil a 852 mil cores distintas) o total foi de 0,9 s a 1,9 s. Estes números são de um ambiente e de PDFs sintéticos; **não** valem como desempenho em PDFs reais.
+
+### 8b.4 Limites
+
+- O cancelamento encerra o Worker inteiro; o próximo uso paga de novo a carga do WASM.
+- A medição da thread principal (travamento da interface com e sem Worker) **não foi feita** de forma quantitativa; o ganho é estrutural (nada pesado roda na thread principal).
+- Os limites de 10 páginas e 4 milhões de pixels por página seguem provisórios. Falta medir PDFs reais grandes e o uso de memória.
 
 ---
 
@@ -400,9 +446,9 @@ O MuPDF compõe a página direto num pixmap CMYK de 8 bits (255 = 100% de tinta;
 |---|---|---|
 | 1 | Setup e fundamentação | Concluída |
 | 2 | Núcleo matemático colorimétrico | Concluída (34 pares + pipeline validado, ver seção 6) |
-| 3 | Integração do lcms2-wasm e perfis ICC | Implementada e testada em Node com PSO Coated v3 e ISO Coated v2 (seção 7). Pendentes: navegador e Web Worker |
+| 3 | Integração do lcms2-wasm e perfis ICC | Concluída: testada em Node, no navegador e em Web Worker com PSO Coated v3 e ISO Coated v2 (seções 7 e 8b) |
 | 4 | Extração de cor do PDF (pdf.js + clusterização) | Implementada e testada em Node e no navegador, com caminho híbrido RGB/CMYK (seção 8). Pendente: PDFs reais de produção |
-| 5 | Web Workers e medição de desempenho | Pendente |
+| 5 | Web Workers e medição de desempenho | Implementada e verificada no Chromium (seção 8b). Pendente: PDFs reais grandes |
 | 6 | Fluxo A: round-trip e laudo | Pendente |
 | 7 | Fluxo B: referência vs. simulação | Pendente |
 | 8 | Interface, validação final e escrita | Pendente |
@@ -430,7 +476,7 @@ Requisitos: Node.js (versão LTS) e VS Code.
 cd colorproof        # a pasta que contém package.json
 npm install
 npm run dev          # http://localhost:5173
-npm test             # 159 testes com os dois perfis locais; sem eles, 123 passam e 36 são ignorados
+npm test             # 174 testes com os dois perfis locais; sem eles, os que dependem dos .icc são ignorados
 ```
 
 **Perfis ICC.** Baixe `pso-coated_v3.zip` e `eci_offset_2009.zip` em https://eci.org/doku.php_id=en:downloads.html (seção *ICC profiles from ECI*), extraia e coloque `PSOcoated_v3.icc` e `ISOcoated_v2_eci.icc` em `public/profiles/`. Os `.icc` são ignorados pelo Git por causa da licença da ECI (seção 7.5). Sem os arquivos, os testes que dependem deles são ignorados.
