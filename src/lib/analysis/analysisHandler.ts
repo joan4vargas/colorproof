@@ -7,6 +7,7 @@
 
 import { extractDominantColors } from '../sampling/dominantColors';
 import type { ColorEngine, IccProfileHandle } from '../icc/colorEngine';
+import { evaluateFlowA } from '../report/flowA';
 import { analyzePdf, type AnalyzePdfDeps, type PdfAnalysis } from '../pdf/analyzePdf';
 import type { AnalysisParams, WorkerRequest, WorkerResponse } from './protocol';
 
@@ -71,7 +72,9 @@ export function createAnalysisHandler(
           rgb,
         };
       }
-      post({ id, type: 'result', analysis });
+      // Fluxo A: com perfil carregado, já devolve o laudo (o round-trip roda aqui, fora da tela).
+      const report = profile ? evaluateFlowA(analysis, profile) : null;
+      post({ id, type: 'result', analysis, report });
     } catch (e) {
       const err = e instanceof Error ? e : new Error(String(e));
       post({ id, type: 'error', name: err.name, message: err.message });

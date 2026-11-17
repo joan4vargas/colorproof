@@ -12,10 +12,12 @@
 //  - O rendering intent é parâmetro explícito. Os dados de caracterização
 //    (ISO 12642) são Lab ABSOLUTO: só o intent 'absolute' os reproduz.
 //    O padrão é 'relative', coerente com Lab derivado de sRGB, em que o
-//    branco é L* = 100 (relativo ao papel). A escolha para o laudo ainda é
-//    uma decisão de projeto em aberto.
-//  - Compensação de ponto preto (BPC) fica desligada (flags = 0). Decisão
-//    em aberto, igual à do intent.
+//    branco é L* = 100 (relativo ao papel). Decisão D1 (docs, seção 8c):
+//    relativo no Fluxo A e absoluto no Fluxo B.
+//  - Compensação de ponto preto (BPC) desligada por padrão (opção
+//    `blackPointCompensation` em `loadProfile`). Medido (docs 8c): ligada, o
+//    round-trip do preto fica perto de zero porque a ida e a volta se
+//    compensam, o que esconde que o preto impresso é bem mais claro que o da tela.
 //  - Só perfis CMYK de saída são aceitos por enquanto. Perfil de monitor
 //    (soft proofing visual) entra em outra fase.
 
@@ -35,9 +37,22 @@ export interface ColorEngineOptions {
   wasmUrl?: string;
 }
 
+export interface LoadProfileOptions {
+  /**
+   * Compensação de ponto preto (flag do lcms2). Só tem efeito nos intents
+   * relativo, perceptual e saturação; o lcms2 a ignora no absoluto.
+   * Padrão: desligada (decisão D1, docs seção 8c).
+   */
+  blackPointCompensation?: boolean;
+}
+
 export interface ColorEngine {
   /** Carrega um perfil CMYK de saída a partir dos bytes do arquivo (.icc/.icm). */
-  loadProfile(profileBytes: Uint8Array, id?: IccProfileId | string): Promise<IccProfileHandle>;
+  loadProfile(
+    profileBytes: Uint8Array,
+    id?: IccProfileId | string,
+    options?: LoadProfileOptions,
+  ): Promise<IccProfileHandle>;
 
   /**
    * sRGB (perfil sRGB embutido no lcms2) para L*a*b* D50, com intent relativo.
@@ -91,6 +106,7 @@ const TYPE_CMYK_16 = 393250;
 const TYPE_Lab_16 = 655386;
 const INFO_DESCRIPTION = 0;
 const NO_FLAGS = 0;
+const FLAGS_BLACKPOINTCOMPENSATION = 0x2000; // cmsFLAGS_BLACKPOINTCOMPENSATION em lcms2.h
 
 const INTENT_CODE: Record<RenderingIntent, number> = {
   perceptual: 0,
@@ -168,7 +184,8 @@ export async function createColorEngine(options: ColorEngineOptions = {}): Promi
   }
 
   return {
-    async loadProfile(profileBytes, id = 'custom') {
+    async loadProfile(profileBytes, id = 'custom', options = {}) {
+      const flags = options.blackPointCompensation ? FLAGS_BLACKPOINTCOMPENSATION : NO_FLAGS;
       const header = readIccHeader(profileBytes); // lança erro claro se não for ICC
       if (header.colorSpace !== 'CMYK') {
         throw new Error(
@@ -193,12 +210,12 @@ export async function createColorEngine(options: ColorEngineOptions = {}): Promi
         if (t === undefined) {
           const code = INTENT_CODE[intent];
           if (kind === 'a2b') {
-            t = lcms.cmsCreateTransform(profile, TYPE_CMYK_16, lab, TYPE_Lab_16, code, NO_FLAGS);
+            t = lcms.cmsCreateTransform(profile, TYPE_CMYK_16, lab, TYPE_Lab_16, code, flags);
           } else if (kind === 'b2a') {
-            t = lcms.cmsCreateTransform(lab, TYPE_Lab_16, profile, TYPE_CMYK_16, code, NO_FLAGS);
+            t = lcms.cmsCreateTransform(lab, TYPE_Lab_16, profile, TYPE_CMYK_16, code, flags);
           } else {
             srgb ||= lcms.cmsCreate_sRGBProfile();
-            t = lcms.cmsCreateTransform(srgb, TYPE_RGB_16, profile, TYPE_CMYK_16, code, NO_FLAGS);
+            t = lcms.cmsCreateTransform(srgb, TYPE_RGB_16, profile, TYPE_CMYK_16, code, flags);
           }
           transformOrThrow(t, `${kind} (${intent})`);
           transforms.set(key, t);

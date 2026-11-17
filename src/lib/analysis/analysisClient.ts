@@ -9,6 +9,7 @@
 // O Worker é injetado por uma função, o que permite testar o cliente em Node
 // com um Worker de mentira.
 
+import type { FlowAReport } from '../report/flowA';
 import { CmykProfileRequiredError, type AnalysisStage, type PdfAnalysis } from '../pdf/analyzePdf';
 import type { AnalysisParams, WorkerRequest, WorkerResponse } from './protocol';
 
@@ -18,6 +19,9 @@ export interface WorkerLike {
   onmessage: ((event: { data: WorkerResponse }) => void) | null;
   onerror: ((event: { message?: string }) => void) | null;
 }
+
+/** A análise e, quando há perfil carregado, o laudo do Fluxo A (senão `null`). */
+export type AnalysisOutcome = PdfAnalysis & { report: FlowAReport | null };
 
 export class AnalysisCancelledError extends Error {
   constructor() {
@@ -72,10 +76,10 @@ export class AnalysisClient {
   }
 
   /** Analisa um PDF. */
-  analyzePdf(file: ArrayBuffer | Uint8Array, options: AnalyzeOptions = {}): Promise<PdfAnalysis> {
+  analyzePdf(file: ArrayBuffer | Uint8Array, options: AnalyzeOptions = {}): Promise<AnalysisOutcome> {
     const { onProgress, ...params } = options;
     const buffer = toArrayBuffer(file);
-    return this.request<PdfAnalysis>(
+    return this.request<AnalysisOutcome>(
       (id) => ({ id, type: 'analyzePdf', file: buffer, params }),
       [buffer],
       onProgress,
@@ -83,10 +87,10 @@ export class AnalysisClient {
   }
 
   /** Analisa uma imagem (PNG, JPEG...). */
-  analyzeImage(file: ArrayBuffer | Uint8Array, mime: string, options: AnalyzeOptions = {}): Promise<PdfAnalysis> {
+  analyzeImage(file: ArrayBuffer | Uint8Array, mime: string, options: AnalyzeOptions = {}): Promise<AnalysisOutcome> {
     const { onProgress, ...params } = options;
     const buffer = toArrayBuffer(file);
-    return this.request<PdfAnalysis>(
+    return this.request<AnalysisOutcome>(
       (id) => ({ id, type: 'analyzeImage', file: buffer, mime, params }),
       [buffer],
       onProgress,
@@ -150,7 +154,9 @@ export class AnalysisClient {
       return;
     }
     (pending.resolve as (v: unknown) => void)(
-      response.type === 'result' ? response.analysis : response.description,
+      response.type === 'result'
+        ? { ...response.analysis, report: response.report }
+        : response.description,
     );
   }
 

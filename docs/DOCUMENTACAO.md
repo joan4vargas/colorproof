@@ -1,6 +1,6 @@
 # ColorProof — Documentação técnica
 
-Estado do projeto em **30/10/2026** · Fases 1 a 5 implementadas (174 testes) · Pendências: PDFs reais de produção (Fase 4)
+Estado do projeto em **30/10/2026** · Fases 1 a 6 implementadas (189 testes) · Pendências: PDFs reais de produção (Fase 4)
 
 Este documento registra o que foi decidido, o que foi construído, como foi validado e o que ainda é limitação. Ele é escrito para servir de base à seção prática da monografia e para quem for continuar o código.
 
@@ -396,7 +396,7 @@ Leitura: com gráficos vetoriais simples o custo dominante é a **clusterizaçã
 
 Decididas pelo autor com base nas medições das seções 7.4 e 8b. São escolhas de projeto, não valores da norma.
 
-**D1. Rendering intent (L10).** Fluxo A (cor de PDF/sRGB, ida e volta pelo perfil): **relativo colorimétrico**. Fluxo B (CMYK contra os valores de referência da condição de impressão): **absoluto**, porque os dados de caracterização são Lab absoluto. Compensação de ponto preto: **desligada** até ser medida; o preto sRGB tem round-trip de 7 a 9 ΔE00, e o efeito do BPC deve ser medido no início da Fase 6.
+**D1. Rendering intent (L10).** Fluxo A (cor de PDF/sRGB, ida e volta pelo perfil): **relativo colorimétrico**. Fluxo B (CMYK contra os valores de referência da condição de impressão): **absoluto**, porque os dados de caracterização são Lab absoluto. Compensação de ponto preto (BPC): **desligada**, confirmada pela medição da Fase 6 (seção 8d.2).
 
 **D2. Limiar de ΔE00 do veredito (L4, L9).** Três faixas: **aprovado ≤ 3,0**; **atenção de 3,0 a 4,0**; **reprovado > 4,0**. Fundamento: piso de erro do round-trip em cores reprodutíveis (patches de caracterização, intent relativo), medido nos dois perfis:
 
@@ -408,6 +408,51 @@ Decididas pelo autor com base nas medições das seções 7.4 e 8b. São escolha
 Com o corte de reprovação em 4,0, até 0,25 % dos patches dentro do gamut seriam reprovados só por erro do método. Perda de gamut real é bem maior (sRGB verde puro 18 ΔE00, azul 14 a 16, ciano 14, vermelho 5 a 6, laranja 2,6 a 2,7; cinza 50 % 0,1). As tolerâncias numéricas da ISO 12647-2 **não foram verificadas** e a norma usa ΔE\*ab; o valor do trabalho precisa ser justificado com bibliografia antes de ser citado como relacionado à norma.
 
 **D3. Licença do projeto (L14).** **AGPL-3.0** para o projeto inteiro (arquivo `LICENSE`), por causa do MuPDF. As demais dependências principais (lcms-wasm, MIT; pdf.js, Apache-2.0) foram conferidas só de forma geral quanto à compatibilidade. O autor não é jurista; para uso comercial seria preciso licença comercial da Artifex ou trocar o MuPDF. Os perfis `.icc` da ECI continuam fora do repositório e não são cobertos por esta licença.
+
+---
+
+## 8d. Fase 6: Fluxo A (round-trip e laudo)
+
+### 8d.1 O que foi implementado
+
+| Arquivo | Papel |
+|---|---|
+| `src/core/verdict.ts` | `classifyDeltaE` (aprovado ≤ 3,0; atenção ≤ 4,0; reprovado acima, limites inclusivos) e `worstVerdict` |
+| `src/lib/report/flowA.ts` | `evaluateFlowA(analysis, profile)`: para cada cor dominante, faz Lab de origem → CMYK (B2A) → Lab (A2B), calcula ΔE00 e classifica; o veredito geral é o pior entre as cores |
+| `src/lib/icc/colorEngine.ts` | nova opção `blackPointCompensation` em `loadProfile` (padrão desligada) |
+| `src/lib/analysis/*` | o Worker devolve o laudo junto com a análise (`report`), que é `null` sem perfil carregado |
+| `src/components/PdfColorTest.tsx` | tabela do laudo na tela; trocar o perfil reanalisa o último arquivo |
+
+Como cada caminho é avaliado:
+
+- **Caminho RGB (cor de tela):** o Lab de origem é o sRGB convertido pelo núcleo. O ΔE00 do round-trip mede o quanto a condição de impressão reproduz a cor (perda de gamut). É o caso principal do Fluxo A.
+- **Caminho CMYK (números lidos do arquivo):** o Lab de origem é o que o perfil prevê para o CMYK (A2B). O round-trip confere se a cor é reprodutível (fica no piso de erro, L9). Informa-se também o ΔE00 de **exibição em tela** (Lab → sRGB recortado → Lab), que **não entra no veredito**: é limitação do monitor, não da impressão.
+- A coluna "CMYK reproduzido" vem da B2A e pode diferir da separação original (K 100% vira um preto composto de 77/68/65/81 no ISO Coated v2). A comparação é de cor, não de percentuais de tinta.
+
+### 8d.2 Medição da compensação de ponto preto (BPC)
+
+Round-trip Lab → CMYK → Lab, intent relativo, ΔE00 (média / p95 / máx):
+
+| Conjunto | ISO Coated v2, sem BPC | ISO Coated v2, com BPC | PSO Coated v3, sem BPC | PSO Coated v3, com BPC |
+|---|---|---|---|---|
+| 1617 patches de caracterização | 0,29 / 1,19 / 4,43 | 0,11 / 0,29 / 0,81 | 0,39 / 1,60 / 3,75 | 0,17 / 0,85 / 1,97 |
+| 216 cores sRGB (grade 6×6×6) | 6,51 / 17,39 / 19,36 | 5,85 / 17,49 / 19,42 | 6,41 / 17,29 / 20,07 | 5,63 / 17,36 / 20,18 |
+| sRGB escuras (L\* < 25, n = 20) | 7,25 / 13,16 / 13,16 | 3,34 / 10,68 / 10,68 | 8,04 / 14,63 / 14,63 | 3,32 / 10,92 / 10,92 |
+
+Preto sRGB (L\* 0): sem BPC o round-trip volta em L\* 10,8 (ISO) e 14,7 (PSO), ΔE00 7,6 e 9,2; com BPC volta em L\* 0,7 e 1,0, ΔE00 0,6 e 3,3.
+
+**Leitura e decisão.** Com BPC o erro do método cai (patches: p95 de 1,2 para 0,3 no ISO), mas isso acontece porque a ida e a volta se compensam: o preto "volta" quase em zero **mesmo que a impressão nunca chegue a esse preto**. Para o veredito, que pergunta se a cor impressa se parecerá com a de origem, isso esconderia uma perda real (o preto impresso é bem mais claro que o da tela). Por isso o padrão fica **BPC desligado**. O BPC seria adequado para exibição na tela (soft proofing visual), não para o veredito. Um teste automatizado (`flowA.test.ts`) fixa essa conclusão.
+
+### 8d.3 Resultados nos PDFs de teste (ISO Coated v2)
+
+PDF RGB (6 cores sólidas): 5 aprovadas (ΔE00 de 0,09 a 2,73) e o azul sRGB 30/60/200 reprovado (9,66, fora do gamut do offset); veredito geral: reprovado. PDF CMYK: todas aprovadas (0,22 a 0,72); o ciano 100% aparece com ΔE00 de 9,36 na tela, informativo. Verificado no Chromium, inclusive a reanálise ao trocar para o PSO Coated v3.
+
+### 8d.4 Limites
+
+- É uma **simulação numérica** (L4), não laudo ISO 12647. Os limites de ΔE00 são decisão de projeto (D2) e as tolerâncias numéricas da norma continuam não verificadas.
+- O round-trip compara cores isoladas; não avalia cobertura de tinta total, sobreposição, nem fotografias como imagem (cores de degradê entram como médias, com aviso quando a dispersão passa de 5 ΔE00).
+- O filtro de participação mínima existe (`minPixelShare`), mas o valor padrão é 0 e não foi calibrado com PDFs reais.
+- Falta o Fluxo B (referência contra simulação) e o laudo exportável (Fase 7 e 8).
 
 ---
 
@@ -468,7 +513,7 @@ Com o corte de reprovação em 4,0, até 0,25 % dos patches dentro do gamut seri
 | 3 | Integração do lcms2-wasm e perfis ICC | Concluída: testada em Node, no navegador e em Web Worker com PSO Coated v3 e ISO Coated v2 (seções 7 e 8b) |
 | 4 | Extração de cor do PDF (pdf.js + clusterização) | Implementada e testada em Node e no navegador, com caminho híbrido RGB/CMYK (seção 8). Pendente: PDFs reais de produção |
 | 5 | Web Workers e medição de desempenho | Implementada e verificada no Chromium (seção 8b). Pendente: PDFs reais grandes |
-| 6 | Fluxo A: round-trip e laudo | Pendente |
+| 6 | Fluxo A: round-trip e laudo | Implementada e verificada no Chromium (seção 8d). Pendente: PDFs reais, laudo exportável |
 | 7 | Fluxo B: referência vs. simulação | Pendente |
 | 8 | Interface, validação final e escrita | Pendente |
 
@@ -495,7 +540,7 @@ Requisitos: Node.js (versão LTS) e VS Code.
 cd colorproof        # a pasta que contém package.json
 npm install
 npm run dev          # http://localhost:5173
-npm test             # 174 testes com os dois perfis locais; sem eles, os que dependem dos .icc são ignorados
+npm test             # 189 testes com os dois perfis locais; sem eles, os que dependem dos .icc são ignorados
 ```
 
 **Perfis ICC.** Baixe `pso-coated_v3.zip` e `eci_offset_2009.zip` em https://eci.org/doku.php_id=en:downloads.html (seção *ICC profiles from ECI*), extraia e coloque `PSOcoated_v3.icc` e `ISOcoated_v2_eci.icc` em `public/profiles/`. Os `.icc` são ignorados pelo Git por causa da licença da ECI (seção 7.5). Sem os arquivos, os testes que dependem deles são ignorados.

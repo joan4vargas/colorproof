@@ -98,7 +98,8 @@ dependem de perfil são ignorados (os demais continuam rodando).
       ver `docs/DOCUMENTACAO.md`, seção 8 e L14
 - [x] **Fase 5** — Web Workers e performance: análise inteira em Worker, com
       progresso, cancelamento e tempos por etapa (`docs/DOCUMENTACAO.md`, 8b)
-- [ ] **Fase 6** — Fluxo A: round-trip (foco principal do TCC)
+- [x] **Fase 6** — Fluxo A: round-trip e veredito por faixas de ΔE00 (foco
+      principal do TCC); falta testar com PDFs reais e exportar o laudo
 - [ ] **Fase 7** — Fluxo B: referência vs. simulação (complementar)
 - [ ] **Fase 8** — Interface, validação final e escrita
 

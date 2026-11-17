@@ -185,6 +185,17 @@ describe('AnalysisClient', () => {
 describe.skipIf(!hasProfile)('AnalysisClient com perfil CMYK', () => {
   const profile = () => new Uint8Array(readFileSync(PROFILE_PATH));
 
+  it('com perfil carregado, devolve também o laudo do Fluxo A; sem perfil, null', async () => {
+    const client = new AnalysisClient(() => fakeWorker(makeEnv()));
+    const semPerfil = await client.analyzePdf(fixture('cores-rgb.pdf'), { scale: 1 });
+    expect(semPerfil.report).toBeNull();
+    await client.setProfile(profile());
+    const comPerfil = await client.analyzePdf(fixture('cores-rgb.pdf'), { scale: 1 });
+    expect(comPerfil.report?.findings).toHaveLength(6);
+    expect(comPerfil.report?.profileDescription).toBe('ISO Coated v2 (ECI)');
+    expect(['aprovado', 'atencao', 'reprovado']).toContain(comPerfil.report?.verdict);
+  });
+
   it('setProfile + analisar um PDF CMYK', async () => {
     const client = new AnalysisClient(() => fakeWorker(makeEnv()));
     expect(await client.setProfile(profile())).toBe('ISO Coated v2 (ECI)');

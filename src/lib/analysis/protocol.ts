@@ -3,6 +3,7 @@
 
 import type { RenderingIntent } from '../icc/colorEngine';
 import type { AnalysisStage, PdfAnalysis } from '../pdf/analyzePdf';
+import type { FlowAReport } from '../report/flowA';
 
 export interface AnalysisParams {
   k?: number;
@@ -20,5 +21,5 @@ export type WorkerRequest =
 export type WorkerResponse =
   | { id: number; type: 'profileLoaded'; description: string }
   | { id: number; type: 'progress'; stage: AnalysisStage }
-  | { id: number; type: 'result'; analysis: PdfAnalysis }
+  | { id: number; type: 'result'; analysis: PdfAnalysis; report: FlowAReport | null }
   | { id: number; type: 'error'; name: string; message: string };

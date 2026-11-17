@@ -9,7 +9,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { labD50ToRgbClipped } from '../core/colorimetry';
-import { AnalysisCancelledError, type AnalysisClient } from '../lib/analysis/analysisClient';
+import { AnalysisCancelledError, type AnalysisClient, type AnalysisOutcome } from '../lib/analysis/analysisClient';
 import { createBrowserAnalysisClient } from '../lib/analysis/browserAnalysis';
 import { CmykProfileRequiredError, type AnalysisStage, type PdfAnalysis } from '../lib/pdf/analyzePdf';
 import type { ColorExtraction } from '../lib/sampling/dominantColors';
@@ -28,6 +28,7 @@ interface Result {
   detalhe: string;
   caminho: string;
   analysis: PdfAnalysis;
+  report: AnalysisOutcome['report'];
   linhas: Row[];
   totalPixels: number;
   paperPixels: number;
@@ -59,6 +60,60 @@ function fromRgb(e: ColorExtraction): Pick<Result, 'linhas' | 'totalPixels' | 'p
   };
 }
 
+const VERDICT_LABEL = { aprovado: 'Aprovado', atencao: 'Atenção', reprovado: 'Reprovado' } as const;
+const VERDICT_COLOR = { aprovado: '#1b7f3b', atencao: '#a66a00', reprovado: '#b3261e' } as const;
+
+function Laudo({ report }: { report: NonNullable<AnalysisOutcome['report']> }) {
+  const th = report.thresholds;
+  return (
+    <div>
+      <h3>Simulação de conformidade (Fluxo A)</h3>
+      <p>
+        Perfil <strong>{report.profileDescription}</strong> · intent {report.intent} · resultado geral:{' '}
+        <strong style={{ color: VERDICT_COLOR[report.verdict] }}>{VERDICT_LABEL[report.verdict]}</strong> (aprovado até ΔE00{' '}
+        {th.approvedMax.toFixed(1)}, atenção até {th.attentionMax.toFixed(1)}, reprovado acima)
+      </p>
+      {report.warnings.map((w, i) => (
+        <p key={i} role="status">
+          Aviso: {w}
+        </p>
+      ))}
+      <table>
+        <thead>
+          <tr>
+            <th>Cor de origem</th>
+            <th>CMYK reproduzido (%)</th>
+            <th>ΔE00 do round-trip</th>
+            <th>Veredito</th>
+            {report.path === 'cmyk' && <th>ΔE00 na tela (informativo)</th>}
+          </tr>
+        </thead>
+        <tbody>
+          {report.findings.map((f, i) => (
+            <tr key={i}>
+              <td>{f.source.kind === 'rgb' ? `sRGB ${f.source.rgb.r}, ${f.source.rgb.g}, ${f.source.rgb.b}` : `CMYK ${fmtCmyk(f.source.cmyk)}`}</td>
+              <td>{fmtCmyk(f.cmykReproduced)}</td>
+              <td>{f.deltaE.toFixed(2)}</td>
+              <td style={{ color: VERDICT_COLOR[f.verdict] }}>{VERDICT_LABEL[f.verdict]}</td>
+              {report.path === 'cmyk' && <td>{f.screenDeltaE?.toFixed(2)}</td>}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+      {report.path === 'cmyk' && (
+        <p>
+          O CMYK reproduzido vem da tabela B2A do perfil e pode diferir da separação original (por exemplo, K 100%
+          vira um preto composto): o que se compara é a cor (Lab), não os percentuais de tinta.
+        </p>
+      )}
+      <p>
+        Isto é uma simulação numérica pelo perfil ICC, não um laudo de conformidade ISO 12647: a norma avalia material
+        impresso medido com espectrofotômetro. Os limites de ΔE00 são decisão de projeto.
+      </p>
+    </div>
+  );
+}
+
 export default function PdfColorTest() {
   const client = useRef<AnalysisClient | null>(null);
   const [profileName, setProfileName] = useState<string | null>(null);
@@ -68,6 +123,8 @@ export default function PdfColorTest() {
   const [busy, setBusy] = useState(false);
   // PDF que parou por falta de perfil: é reanalisado quando o perfil for escolhido.
   const waitingForProfile = useRef<File | null>(null);
+  // Último arquivo analisado: trocar o perfil reanalisa, para comparar condições de impressão.
+  const lastFile = useRef<File | null>(null);
 
   const getClient = () => (client.current ??= createBrowserAnalysisClient());
   useEffect(() => () => client.current?.dispose(), []);
@@ -77,11 +134,9 @@ export default function PdfColorTest() {
     if (!file) return;
     try {
       setProfileName(await getClient().setProfile(await file.arrayBuffer()));
-      if (waitingForProfile.current) {
-        const pending = waitingForProfile.current;
-        waitingForProfile.current = null;
-        await onFile(pending);
-      }
+      const pending = waitingForProfile.current ?? lastFile.current;
+      waitingForProfile.current = null;
+      if (pending) await onFile(pending);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -92,6 +147,7 @@ export default function PdfColorTest() {
     setError(null);
     waitingForProfile.current = null;
     if (!file) return;
+    lastFile.current = file;
     setBusy(true);
     setStage(null);
     try {
@@ -113,6 +169,7 @@ export default function PdfColorTest() {
           detalhe,
           caminho: `CMYK lido do arquivo (MuPDF), Lab pelo perfil ${getClient().profile ?? ''}`,
           analysis,
+          report: analysis.report,
           linhas: analysis.cmyk.colors.map((c) => ({
             rgb: labD50ToRgbClipped(c.lab),
             nome: `CMYK ${fmtCmyk(c.cmyk)}`,
@@ -130,6 +187,7 @@ export default function PdfColorTest() {
           detalhe,
           caminho: isPdf ? 'sRGB (pdf.js)' : 'sRGB (navegador)',
           analysis,
+          report: analysis.report,
           ...fromRgb(analysis.rgb!),
         });
       }
@@ -249,6 +307,7 @@ export default function PdfColorTest() {
             </tbody>
           </table>
           <p>A amostra de cor na tela é uma aproximação em sRGB; o que vale é o Lab.</p>
+          {result.report ? <Laudo report={result.report} /> : <p role="status">Escolha um perfil CMYK para ver o laudo da simulação.</p>}
         </div>
       )}
     </section>
