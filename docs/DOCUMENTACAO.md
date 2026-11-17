@@ -1,6 +1,6 @@
 # ColorProof — Documentação técnica
 
-Estado do projeto em **17/11/2026** · Fases 1 a 7 implementadas (210 testes) · Pendências: PDFs reais de produção (Fase 4)
+Estado do projeto em **17/11/2026** · Fases 1 a 8 implementadas, interface final (218 testes) · Pendências: PDFs reais de produção (Fase 4)
 
 Este documento registra o que foi decidido, o que foi construído, como foi validado e o que ainda é limitação. Ele é escrito para servir de base à seção prática da monografia e para quem for continuar o código.
 
@@ -97,13 +97,12 @@ Versões instaladas (conforme `package.json`): React 19, Vite 8, TypeScript 6, V
 | `src/lib/icc/characterization.ts` | Leitura dos dados de caracterização (CGATS) embutidos no perfil (tag `targ`) | Implementado e testado |
 | `src/lib/icc/__tests__/` | 32 testes: 9 do leitor ICC, do CGATS e da codificação de 16 bits (sem arquivo externo); 13 de sRGB contra o núcleo; 9 do perfil PSO Coated v3 (ignorados se o `.icc` não estiver na máquina); 1 de arquivo inválido | Passando |
 | `src/types/lcms-wasm.d.ts` | Declaração de tipos do subconjunto usado do `lcms-wasm` (o pacote não publica tipos) | Pronto |
-| `src/components/ProfileSmokeTest.tsx` | Teste provisório no navegador: escolhe um `.icc` e mostra papel e sólidos em Lab | Provisório (substituído na Fase 8) |
 | `src/lib/pdf/renderPdf.ts` | `renderPdfPages`, `concatPages` (PDF para pixels, com pdf.js e canvas injetados) | Implementado e testado em Node e no navegador |
 | `src/lib/pdf/browserPdf.ts` | Ligação ao navegador (Worker do pdf.js, canvas do DOM) e rasterização de imagens | Implementado, verificado no navegador |
 | `src/lib/pdf/outputIntent.ts` | `extractOutputIntentProfile` | Pendente (lança erro explícito) |
 | `src/lib/pdf/__fixtures__/`, `scripts/gerar-fixtures-pdf.py` | PDFs de teste e o script que os gera | Pronto |
-| `src/components/PdfColorTest.tsx` | Teste provisório da extração de cores no navegador | Provisório (substituído na Fase 8) |
-| `src/App.tsx` | Placeholder que lista o status das fases | Provisório |
+| `src/App.tsx`, `src/components/*` | Interface final (Fase 8): perfil compartilhado e abas dos Fluxos A e B (seção 8f) | Implementado e verificado no Chromium |
+| `src/lib/report/export.ts` | Laudo em HTML autônomo e CSV (seção 8f) | Implementado e testado |
 
 `src/core/` não depende de DOM, Canvas ou Workers. Entram números e saem números, o que permite testar isoladamente.
 
@@ -252,7 +251,7 @@ Papel e sólidos C, M, Y e K em intent absoluto coincidem com a tabela em até �
 
 - A referência dos testes é o dado do **criador do perfil**. Não é validação independente. A conferência com ArgyllCMS (`xicclu`) continua pendente.
 - Foram testados dois perfis (PSO Coated v3 e ISO Coated v2). Outras condições de impressão não foram avaliadas.
-- Os testes automatizados rodam em Node. O build de produção compila e empacota o `.wasm`, mas o carregamento no navegador foi verificado (teste provisório `ProfileSmokeTest`) e dentro de um **Web Worker** na Fase 5 (seção 8b).
+- Os testes automatizados rodam em Node. O build de produção compila e empacota o `.wasm`, mas o carregamento no navegador foi verificado (teste provisório da época, depois substituído pela interface da Fase 8) e dentro de um **Web Worker** na Fase 5 (seção 8b).
 - Só perfis CMYK de saída são aceitos. Perfil de monitor entra em fase posterior.
 
 ---
@@ -279,7 +278,7 @@ A escolha do caminho é automática (`analyzePdf`), por inspeção dos espaços 
 | `src/lib/sampling/dominantColors.ts` | `extractDominantColors`: histograma **exato** de cores RGB distintas (sem quantização), exclusão do papel (L\* ≥ 99) e dos pixels transparentes, conversão para Lab D50 e k-means ponderado. Devolve, por cor: Lab do centróide, a cor RGB real mais frequente do cluster, fração dos pixels de tinta, fração de todos os pixels e dispersão. |
 | `src/lib/sampling/kmeans.ts` | Reescrito: k-means **ponderado** em Lab, com inicialização determinística no estilo k-means++ (primeira cor = a de maior peso; as seguintes maximizam peso x distância²). Mesma entrada, mesma saída. Resolve a L7. |
 | `scripts/gerar-fixtures-pdf.py` | Gera os PDFs de teste: retângulos de cor e área conhecidas em RGB e em CMYK, um PDF misto e duas imagens CMYK (Flate e JPEG). |
-| `src/components/PdfColorTest.tsx` | Teste provisório no navegador: perfil `.icc` (opcional até o PDF precisar) e PDF ou imagem; mostra o caminho usado, os avisos e as cores dominantes. |
+| `src/components/PdfColorTest.tsx` (removido na Fase 8) | Teste provisório no navegador: perfil `.icc` (opcional até o PDF precisar) e PDF ou imagem; mostra o caminho usado, os avisos e as cores dominantes. |
 
 A **dispersão** de cada cor é o ΔE00 médio entre os pixels do cluster e o centróide. Ela indica se o centróide representa uma cor que existe no arquivo (dispersão 0 em cores sólidas) ou se junta cores diferentes, como num degradê ou numa fotografia.
 
@@ -421,7 +420,7 @@ Com o corte de reprovação em 4,0, até 0,25 % dos patches dentro do gamut seri
 | `src/lib/report/flowA.ts` | `evaluateFlowA(analysis, profile)`: para cada cor dominante, faz Lab de origem → CMYK (B2A) → Lab (A2B), calcula ΔE00 e classifica; o veredito geral é o pior entre as cores |
 | `src/lib/icc/colorEngine.ts` | nova opção `blackPointCompensation` em `loadProfile` (padrão desligada) |
 | `src/lib/analysis/*` | o Worker devolve o laudo junto com a análise (`report`), que é `null` sem perfil carregado |
-| `src/components/PdfColorTest.tsx` | tabela do laudo na tela; trocar o perfil reanalisa o último arquivo |
+| `src/components/PdfColorTest.tsx` (removido na Fase 8; ver 8f) | tabela do laudo na tela; trocar o perfil reanalisa o último arquivo |
 
 Como cada caminho é avaliado:
 
@@ -468,10 +467,10 @@ Entrada: duas versões do **mesmo layout** (PDF ou imagem): a referência (por e
 | `src/lib/compare/flowB.ts` | `comparePage`/`compareGrids`: ΔE00 por região, média, p95, máximo, participação por faixa, piores regiões, veredito; `LayoutMismatchError` se as proporções da página diferem mais de 2% |
 | `src/lib/compare/compareFiles.ts` | De ponta a ponta: lê cada entrada pelo caminho certo (pdf.js em RGB, MuPDF com perfil em CMYK, imagem pelo navegador) e compara |
 | `src/lib/analysis/*` | O Worker ganhou a mensagem `compare`; o cliente, `compare()` |
-| `src/components/FlowBTest.tsx` | Tela provisória, com Worker e perfil próprios; trocar o perfil ou um dos arquivos refaz a comparação |
+| `src/components/FlowBTest.tsx` (removido na Fase 8; ver 8f) | Tela provisória, com Worker e perfil próprios; trocar o perfil ou um dos arquivos refaz a comparação |
 | `src/lib/pdf/__fixtures__/par-simulacao-cmyk.pdf` | Par CMYK de `cores-rgb.pdf` (mesmo layout), com o CMYK que o ISO Coated v2 escolhe para cada cor |
 
-### 8e.2 Decisões desta fase (a confirmar pelo autor)
+### 8e.2 Decisões desta fase (confirmadas pelo autor em 17/11/2026)
 
 - **Veredito geral pelo percentil 95**, não pelo pior caso. O pior caso é dominado por regiões de borda, onde poucos pixels de deslocamento entre as versões trocam a cor dominante da região. O pior caso e as cinco piores regiões são informados à parte, junto com a fração de uniformidade da região (baixa = região mista). As faixas de ΔE00 são as de D2 (3,0 e 4,0).
 - **Intent padrão: relativo**, não absoluto como a decisão D1 previu para o Fluxo B. A D1 pensava em comparar CMYK com os valores de caracterização da condição de impressão. Para referência de tela contra versão impressa, o intent absoluto faz o branco do papel (L\* 95, b\* −2 a −6) contar como diferença da tela (L\* 100) e eleva o ΔE00 de todo o material. A opção `intent: 'absolute'` continua disponível.
@@ -496,8 +495,50 @@ Verificado no Chromium (build de produção): RGB × RGB do mesmo arquivo dá Δ
 - O Fluxo B **exige o mesmo layout**. Não há alinhamento automático; páginas com proporção diferente são recusadas.
 - Elementos menores que uma região (cerca de 6,6 × 9,3 mm numa página A4 com grade 32) dentro de uma região dominada por outra cor, ou por papel, não aparecem. Texto fino não é avaliado.
 - A comparação é de **cor dominante por região**, não de imagem pixel a pixel nem de percepção de diferenças locais.
-- A tela do Fluxo B é provisória. Falta o laudo exportável e a interface final (Fase 8), e testar com pares de arquivos reais.
+- A interface final e a exportação vieram na Fase 8 (seção 8f). Falta testar com pares de arquivos reais.
 - Uma mesma região pode virar "mista" por antialiasing; o aviso do laudo aparece quando as piores regiões têm menos de 50% de uniformidade.
+
+---
+
+## 8f. Fase 8: interface final e laudo exportável
+
+### 8f.1 Interface
+
+Uma única tela, sem servidor, em português: **perfil ICC compartilhado** (um campo, usado pelos dois fluxos) e duas abas, **Fluxo A (verificar um arquivo)** e **Fluxo B (comparar duas versões)**. Trocar o perfil refaz a análise que estiver na tela. As telas provisórias das Fases 3 a 7 (`ProfileSmokeTest`, `PdfColorTest`, `FlowBTest`) e o scaffold foram removidos. Todo o cálculo roda no Web Worker da Fase 5, com progresso e botão de cancelar.
+
+| Arquivo | Papel |
+|---|---|
+| `src/App.tsx` | Perfil, abas e reanálise ao trocar o perfil |
+| `src/components/FlowAPanel.tsx`, `FlowBPanel.tsx` | Os dois fluxos, com tabela de resultado, veredito por faixa e botões de exportação |
+| `src/components/common.tsx`, `format.ts` | Seletor de arquivo, selo de veredito, avisos e formatação |
+| `src/lib/browser/download.ts` | Baixar arquivo, imprimir pelo diálogo do navegador (salvar em PDF) e nome seguro de arquivo |
+| `src/lib/report/export.ts` | `flowAToHtml`, `flowAToCsv`, `flowBToHtml`, `flowBToCsv` (funções puras, testadas em Node) |
+
+Acessibilidade e layout: abas com `role="tablist"`, seletores de arquivo com rótulo e foco visível, resultado em região `aria-live`, cores de veredito acompanhadas de texto (não só cor), tema claro e escuro, tabelas com rolagem horizontal. Verificado no Chromium em 1100 px e em 390 px (celular), sem rolagem horizontal da página.
+
+### 8f.2 Laudo exportável
+
+- **HTML autônomo:** abre em qualquer navegador e imprime ou salva em PDF pelo diálogo de impressão (estilo de impressão incluso). Traz arquivo(s), páginas, caminho de leitura da cor, perfil, rendering intent, limites de ΔE00, veredito geral e por cor (ou por região no Fluxo B), avisos, amostras de cor e o texto "como ler este laudo", que repete que é simulação numérica e não laudo ISO 12647 (L4), que os limites são decisão de projeto e que a compensação de ponto preto está desligada. Data e hora vêm de fora da função, para o texto ser reproduzível nos testes.
+- **CSV:** separador `;`, decimal com vírgula e BOM UTF-8, que é o que o Excel em português abre sem converter. Valores de texto que começam com `=`, `+`, `-` ou `@` recebem um apóstrofo, para o nome de um arquivo não virar fórmula na planilha. Nomes de arquivo são escapados no HTML.
+- Nada sai do computador: a geração e o download acontecem no navegador.
+
+### 8f.3 Resumo da validação feita no projeto
+
+| O que | Como foi verificado | Resultado |
+|---|---|---|
+| Núcleo colorimétrico (sRGB, Bradford, CIEDE2000) | 34 pares de Sharma et al. e conferência contra o lcms2 | Seções 6 e 7 |
+| Motor de cor (A2B, B2A, round-trip) | Dados de caracterização embutidos em dois perfis (1617 patches cada) | Seção 7.4 |
+| Leitura de cor do PDF | Fixtures sintéticas com proporções de pixel conhecidas, RGB, CMYK, misto e imagens | Seção 8 |
+| Fluxo A e Fluxo B | Testes automatizados e verificação no Chromium | Seções 8d e 8e |
+| Exportação | Testes de conteúdo, escape e CSV; abertura do HTML gerado | Esta seção |
+
+**O que não foi validado:** PDFs reais de produção (InDesign, Illustrator, Canva); comparação independente do motor de cor (ArgyllCMS, `xicclu`); tolerâncias numéricas da ISO 12647-2 (não verificadas no texto da norma); comparação com impresso medido; uso de memória com PDFs grandes; acessibilidade com leitor de tela (só a estrutura foi cuidada).
+
+### 8f.4 Limites
+
+- O perfil não persiste entre sessões (precisa ser escolhido de novo ao abrir a página); isso evita guardar o `.icc` da ECI (L11).
+- Só um arquivo (Fluxo A) ou um par (Fluxo B) por vez; sem histórico nem laudo em lote.
+- A impressão usa o diálogo do navegador; o PDF final depende dele.
 
 ---
 
@@ -560,7 +601,7 @@ Verificado no Chromium (build de produção): RGB × RGB do mesmo arquivo dá Δ
 | 5 | Web Workers e medição de desempenho | Implementada e verificada no Chromium (seção 8b). Pendente: PDFs reais grandes |
 | 6 | Fluxo A: round-trip e laudo | Implementada e verificada no Chromium (seção 8d). Pendente: PDFs reais, laudo exportável |
 | 7 | Fluxo B: referência vs. simulação | Implementada e verificada no Chromium (seção 8e). Pendente: pares de arquivos reais |
-| 8 | Interface, validação final e escrita | Pendente |
+| 8 | Interface, laudo exportável, validação final e escrita | Interface e exportação implementadas e verificadas no Chromium (seção 8f). Pendente: validação com arquivos reais e a escrita do TCC |
 
 **Pendências (Fases 3 e 4):**
 
@@ -585,7 +626,7 @@ Requisitos: Node.js (versão LTS) e VS Code.
 cd colorproof        # a pasta que contém package.json
 npm install
 npm run dev          # http://localhost:5173
-npm test             # 210 testes com os dois perfis locais; sem eles, os que dependem dos .icc são ignorados
+npm test             # 218 testes com os dois perfis locais; sem eles, os que dependem dos .icc são ignorados
 ```
 
 **Perfis ICC.** Baixe `pso-coated_v3.zip` e `eci_offset_2009.zip` em https://eci.org/doku.php_id=en:downloads.html (seção *ICC profiles from ECI*), extraia e coloque `PSOcoated_v3.icc` e `ISOcoated_v2_eci.icc` em `public/profiles/`. Os `.icc` são ignorados pelo Git por causa da licença da ECI (seção 7.5). Sem os arquivos, os testes que dependem deles são ignorados.

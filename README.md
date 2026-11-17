@@ -50,7 +50,8 @@ src/
 
   types/color.ts          Tipos base: RGB, XYZ, Lab, iluminantes D65/D50
 
-  components/             ProfileSmokeTest e PdfColorTest (provisórios); UI real na Fase 8
+  components/             Interface (Fase 8): abas dos Fluxos A e B
+  lib/report/             Laudo: avaliação (Fluxo A) e exportação HTML/CSV
 
   App.tsx                 Placeholder: mostra o status de cada fase
 ```
@@ -102,7 +103,8 @@ dependem de perfil são ignorados (os demais continuam rodando).
       principal do TCC); falta testar com PDFs reais e exportar o laudo
 - [x] **Fase 7** — Fluxo B: referência vs. simulação (complementar): duas
       versões do mesmo layout comparadas por região em ΔE00
-- [ ] **Fase 8** — Interface, validação final e escrita
+- [x] **Fase 8** — Interface final e laudo exportável (HTML imprimível e CSV).
+      Falta validar com PDFs reais e a escrita do TCC
 
 ## Decisões de escopo relevantes para a monografia
 

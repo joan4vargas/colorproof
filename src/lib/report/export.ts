@@ -1,0 +1,226 @@
+// Exportação do laudo (Fase 8): HTML autônomo (abre em qualquer navegador e
+// imprime ou salva em PDF pelo diálogo de impressão) e CSV (para planilhas).
+// Funções puras: recebem os dados e devolvem texto. O download em si fica na
+// interface. Tudo o que vem do usuário (nomes de arquivo) é escapado.
+//
+// O texto do laudo repete, de propósito, o que a simulação NÃO é (L4): a norma
+// ISO 12647 avalia material impresso medido com espectrofotômetro.
+
+import { labD50ToRgbClipped } from '../../core/colorimetry';
+import type { Verdict, VerdictThresholds } from '../../core/verdict';
+import type { Lab, RGB } from '../../types/color';
+import type { CompareOutcome } from '../compare/compareFiles';
+import type { AnalysisOutcome } from '../analysis/analysisClient';
+import type { FlowAReport } from './flowA';
+
+export interface ExportMeta {
+  /** Quando o laudo foi gerado (injetado, para o texto ser reproduzível). */
+  generatedAt: Date;
+  appName?: string;
+  appVersion?: string;
+}
+
+const VERDICT_LABEL: Record<Verdict, string> = { aprovado: 'Aprovado', atencao: 'Atenção', reprovado: 'Reprovado' };
+const VERDICT_COLOR: Record<Verdict, string> = { aprovado: '#1b7f3b', atencao: '#a66a00', reprovado: '#b3261e' };
+const INTENT_LABEL: Record<string, string> = {
+  relative: 'colorimétrico relativo',
+  absolute: 'colorimétrico absoluto',
+  perceptual: 'perceptual',
+  saturation: 'saturação',
+};
+
+export function escapeHtml(text: string): string {
+  return text
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+const num = (v: number, digits = 2) => v.toFixed(digits);
+const cmykText = (c: { c: number; m: number; y: number; k: number }) =>
+  `${c.c.toFixed(0)} / ${c.m.toFixed(0)} / ${c.y.toFixed(0)} / ${c.k.toFixed(0)}`;
+const labText = (l: Lab) => `${l.l.toFixed(1)} / ${l.a.toFixed(1)} / ${l.b.toFixed(1)}`;
+const pct = (v: number) => `${(v * 100).toFixed(1)}%`;
+const swatch = (rgb: RGB) =>
+  `<span class="sw" style="background:rgb(${rgb.r},${rgb.g},${rgb.b})"></span>`;
+const badge = (v: Verdict) => `<strong style="color:${VERDICT_COLOR[v]}">${VERDICT_LABEL[v]}</strong>`;
+const dateText = (d: Date) => d.toISOString().replace('T', ' ').slice(0, 16) + ' UTC';
+
+function thresholdsText(t: VerdictThresholds): string {
+  return `aprovado até ΔE00 ${num(t.approvedMax, 1)}; atenção até ${num(t.attentionMax, 1)}; reprovado acima`;
+}
+
+const STYLE = `
+body{font:14px/1.5 system-ui,'Segoe UI',Roboto,sans-serif;color:#1f2328;max-width:900px;margin:2rem auto;padding:0 1rem}
+h1{font-size:1.5rem;margin:0 0 .25rem}h2{font-size:1.1rem;margin:1.5rem 0 .5rem}
+table{border-collapse:collapse;width:100%;margin:.5rem 0}th,td{border:1px solid #d0d7de;padding:.35rem .5rem;text-align:left;vertical-align:middle}
+th{background:#f6f8fa}.sw{display:inline-block;width:28px;height:16px;border:1px solid #888;vertical-align:middle}
+.meta td:first-child{width:14rem;font-weight:600;background:#f6f8fa}.note{font-size:12px;color:#57606a}
+.warn{background:#fff8c5;border:1px solid #d4a72c;padding:.4rem .6rem;margin:.4rem 0}
+@media print{body{margin:0;max-width:none}}
+`;
+
+function page(title: string, body: string): string {
+  return `<!doctype html>
+<html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${escapeHtml(title)}</title><style>${STYLE}</style></head><body>
+${body}
+</body></html>`;
+}
+
+function metaRows(rows: Array<[string, string]>): string {
+  return `<table class="meta">${rows.map(([k, v]) => `<tr><td>${escapeHtml(k)}</td><td>${v}</td></tr>`).join('')}</table>`;
+}
+
+function header(meta: ExportMeta, subtitle: string): string {
+  const app = `${meta.appName ?? 'ColorProof'}${meta.appVersion ? ` ${escapeHtml(meta.appVersion)}` : ''}`;
+  return `<h1>Simulação de conformidade de cor</h1><div class="note">${escapeHtml(subtitle)} · gerado por ${app} em ${dateText(meta.generatedAt)}</div>`;
+}
+
+const DISCLAIMER = `<h2>Como ler este laudo</h2>
+<p class="note">Esta é uma <strong>simulação numérica</strong> feita no navegador com o perfil ICC indicado. Ela <strong>não</strong> é um laudo de conformidade ISO 12647: a norma avalia material impresso medido com espectrofotômetro. Os limites de ΔE00 (CIEDE2000) são decisão de projeto, não tolerâncias da norma. A cor é analisada em CIE L*a*b* (D50), independente do monitor. Compensação de ponto preto desligada. Elementos pequenos, texto fino, transparências e overprint podem não ser representados fielmente.</p>`;
+
+function warningsHtml(warnings: string[]): string {
+  return warnings.map((w) => `<div class="warn">Aviso: ${escapeHtml(w)}</div>`).join('');
+}
+
+// --- Fluxo A -------------------------------------------------------------
+
+export interface FlowAExport {
+  fileName: string;
+  analysis: AnalysisOutcome;
+  report: FlowAReport;
+}
+
+export function flowAToHtml(data: FlowAExport, meta: ExportMeta): string {
+  const { fileName, analysis, report } = data;
+  const rows = report.findings
+    .map((f) => {
+      const origin = f.source.kind === 'rgb' ? `sRGB ${f.source.rgb.r}, ${f.source.rgb.g}, ${f.source.rgb.b}` : `CMYK ${cmykText(f.source.cmyk)}`;
+      const sw = f.source.kind === 'rgb' ? f.source.rgb : labD50ToRgbClipped(f.labSource);
+      return `<tr><td>${swatch(sw)}</td><td>${escapeHtml(origin)}</td><td>${pct(f.pixelShare)}</td><td>${labText(f.labSource)}</td>
+<td>${cmykText(f.cmykReproduced)}</td><td>${labText(f.labRoundTrip)}</td><td>${num(f.deltaE)}</td><td>${badge(f.verdict)}</td>${
+        report.path === 'cmyk' ? `<td>${f.screenDeltaE !== undefined ? num(f.screenDeltaE) : ''}</td>` : ''
+      }</tr>`;
+    })
+    .join('');
+  const body = `${header(meta, 'Fluxo A: o arquivo contra a condição de impressão (round-trip pelo perfil ICC)')}
+<h2>Resultado</h2>
+<p>Resultado geral: ${badge(report.verdict)} (${escapeHtml(thresholdsText(report.thresholds))}). O resultado geral é o pior entre as cores.</p>
+${metaRows([
+  ['Arquivo', escapeHtml(fileName)],
+  ['Páginas analisadas', `${analysis.analyzedPages} de ${analysis.numPages}`],
+  ['Leitura da cor', analysis.path === 'cmyk' ? 'CMYK lido do arquivo (MuPDF), Lab pelo perfil' : 'sRGB (pdf.js ou navegador)'],
+  ['Perfil ICC', escapeHtml(report.profileDescription)],
+  ['Rendering intent', escapeHtml(INTENT_LABEL[report.intent] ?? report.intent)],
+  ['Limites', escapeHtml(thresholdsText(report.thresholds))],
+])}
+${warningsHtml(report.warnings)}
+<h2>Cores dominantes</h2>
+<table><thead><tr><th></th><th>Cor de origem</th><th>Participação</th><th>Lab de origem</th><th>CMYK reproduzido (%)</th><th>Lab após round-trip</th><th>ΔE00</th><th>Veredito</th>${
+    report.path === 'cmyk' ? '<th>ΔE00 na tela (informativo)</th>' : ''
+  }</tr></thead><tbody>${rows}</tbody></table>
+<p class="note">Participação: fração de todos os pixels, papel incluído. ${
+    report.path === 'cmyk'
+      ? 'No caminho CMYK, o ΔE00 na tela mede o quanto um monitor sRGB mostra da cor impressa e não entra no veredito. O CMYK reproduzido vem da tabela B2A do perfil e pode diferir da separação original.'
+      : 'O ΔE00 compara a cor de origem com a que a condição de impressão reproduz (perda de gamut).'
+  }</p>
+${DISCLAIMER}`;
+  return page(`Laudo: ${fileName}`, body);
+}
+
+export function flowAToCsv(data: FlowAExport): string {
+  const { fileName, report } = data;
+  const head = ['arquivo', 'perfil', 'intent', 'origem', 'participacao_pixels', 'L_origem', 'a_origem', 'b_origem', 'C_reproduzido', 'M_reproduzido', 'Y_reproduzido', 'K_reproduzido', 'deltaE00', 'veredito', 'deltaE00_tela'];
+  const lines = report.findings.map((f) =>
+    [
+      fileName,
+      report.profileDescription,
+      report.intent,
+      f.source.kind === 'rgb' ? `sRGB ${f.source.rgb.r} ${f.source.rgb.g} ${f.source.rgb.b}` : `CMYK ${cmykText(f.source.cmyk)}`,
+      f.pixelShare,
+      f.labSource.l,
+      f.labSource.a,
+      f.labSource.b,
+      f.cmykReproduced.c,
+      f.cmykReproduced.m,
+      f.cmykReproduced.y,
+      f.cmykReproduced.k,
+      f.deltaE,
+      VERDICT_LABEL[f.verdict],
+      f.screenDeltaE ?? '',
+    ].map(csvCell),
+  );
+  return csvJoin(head, lines);
+}
+
+// --- Fluxo B -------------------------------------------------------------
+
+export interface FlowBExport {
+  referenceName: string;
+  simulationName: string;
+  profileDescription: string | null;
+  outcome: CompareOutcome;
+}
+
+export function flowBToHtml(data: FlowBExport, meta: ExportMeta): string {
+  const { outcome, referenceName, simulationName, profileDescription } = data;
+  const r = outcome.report;
+  const pages = r.pages
+    .map((p) => {
+      const worst = p.worst
+        .map(
+          (w) =>
+            `<tr><td>${w.row + 1}, ${w.col + 1}</td><td>${num(w.deltaE)}</td><td>${swatch(labD50ToRgbClipped(w.reference))} ${labText(w.reference)}</td><td>${swatch(labD50ToRgbClipped(w.simulation))} ${labText(w.simulation)}</td><td>${pct(w.minShare)}</td></tr>`,
+        )
+        .join('');
+      return `<h2>Página ${p.pageNumber}</h2>
+<p>${p.compared} regiões comparadas · ΔE00 médio ${num(p.meanDeltaE)} · p95 ${num(p.p95DeltaE)} · máximo ${num(p.maxDeltaE)} (pior caso: ${badge(p.worstCaseVerdict)}).<br>
+Regiões aprovadas ${pct(p.shares.aprovado)} · atenção ${pct(p.shares.atencao)} · reprovadas ${pct(p.shares.reprovado)} · resultado da página: ${badge(p.verdict)}</p>
+<table><thead><tr><th>Região (linha, coluna)</th><th>ΔE00</th><th>Lab referência</th><th>Lab simulação</th><th>Região uniforme</th></tr></thead><tbody>${worst}</tbody></table>`;
+    })
+    .join('');
+  const side = (s: { path: string }) => (s.path === 'cmyk' ? 'CMYK (MuPDF + perfil)' : 'sRGB');
+  const body = `${header(meta, 'Fluxo B: referência contra simulação do mesmo layout')}
+<h2>Resultado</h2>
+<p>Resultado geral: ${badge(r.verdict)}, pelo percentil 95 do ΔE00 das regiões (${escapeHtml(thresholdsText(r.thresholds))}).</p>
+${metaRows([
+  ['Referência', `${escapeHtml(referenceName)} (${side(outcome.reference)})`],
+  ['Simulação', `${escapeHtml(simulationName)} (${side(outcome.simulation)})`],
+  ['Perfil ICC', profileDescription ? escapeHtml(profileDescription) : 'não usado (as duas versões em sRGB)'],
+  ['Rendering intent', escapeHtml(INTENT_LABEL[outcome.intent] ?? outcome.intent)],
+  ['Grade', `${r.grid} × ${r.grid} regiões por página`],
+])}
+${warningsHtml(r.warnings)}
+${pages}
+<p class="note">Cada região é comparada pela cor mais frequente dela. O pior caso é dominado por bordas e informado à parte; as piores regiões aparecem acima com a fração de uniformidade. Regiões que são papel nas duas versões não entram na conta.</p>
+${DISCLAIMER}`;
+  return page(`Comparação: ${referenceName} × ${simulationName}`, body);
+}
+
+export function flowBToCsv(data: FlowBExport): string {
+  const { outcome, referenceName, simulationName } = data;
+  const head = ['referencia', 'simulacao', 'pagina', 'linha', 'coluna', 'deltaE00', 'L_ref', 'a_ref', 'b_ref', 'L_sim', 'a_sim', 'b_sim', 'uniformidade'];
+  const lines = outcome.report.pages.flatMap((p) =>
+    p.worst.map((w) =>
+      [referenceName, simulationName, p.pageNumber, w.row + 1, w.col + 1, w.deltaE, w.reference.l, w.reference.a, w.reference.b, w.simulation.l, w.simulation.a, w.simulation.b, w.minShare].map(csvCell),
+    ),
+  );
+  return csvJoin(head, lines);
+}
+
+// --- CSV -----------------------------------------------------------------
+// Separador ";" e decimal com vírgula: é o que o Excel em português abre
+// direito. Começa com BOM UTF-8 para os acentos.
+
+function csvCell(value: string | number): string {
+  if (typeof value === 'number') return Number.isInteger(value) ? String(value) : value.toFixed(4).replace('.', ',');
+  const text = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value; // evita fórmula em planilha
+  return /[;"\n\r]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function csvJoin(head: string[], lines: string[][]): string {
+  return '﻿' + [head.join(';'), ...lines.map((l) => l.join(';'))].join('\r\n') + '\r\n';
+}
