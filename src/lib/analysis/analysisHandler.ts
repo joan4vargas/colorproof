@@ -9,6 +9,9 @@ import { extractDominantColors } from '../sampling/dominantColors';
 import type { ColorEngine, IccProfileHandle } from '../icc/colorEngine';
 import { compareFiles } from '../compare/compareFiles';
 import { evaluateFlowA } from '../report/flowA';
+import { simulatePrint } from '../simulate/simulatePrint';
+import { listSpotColors } from '../pdf/spotColors';
+import { matchSpot } from '../spot/spotMatch';
 import { analyzePdf, type AnalyzePdfDeps, type PdfAnalysis } from '../pdf/analyzePdf';
 import type { AnalysisParams, WorkerRequest, WorkerResponse } from './protocol';
 
@@ -41,6 +44,30 @@ export function createAnalysisHandler(
         profile?.libera();
         profile = loaded;
         post({ id, type: 'profileLoaded', description: loaded.description });
+        return;
+      }
+
+      if (req.type === 'spotList') {
+        const mupdf = await env.deps.loadMupdf();
+        post({ id, type: 'spotListResult', spots: listSpotColors(mupdf, req.file) });
+        return;
+      }
+
+      if (req.type === 'spotMatch') {
+        if (!profile) throw new Error('Escolha o perfil ICC de saída para calcular o CMYK.');
+        const matches = req.items.map((item) => matchSpot(item, profile!, { intent: req.intent }));
+        post({ id, type: 'spotMatchResult', matches, profileDescription: profile.description });
+        return;
+      }
+
+      if (req.type === 'simulate') {
+        if (!profile) throw new Error('Escolha o perfil ICC de saída para simular a impressão.');
+        const simulation = await simulatePrint(req.input, { ...env.deps, rasterizeImage: env.rasterizeImage }, {
+          ...req.params,
+          profile,
+          onProgress: (stage) => post({ id, type: 'progress', stage }),
+        });
+        post({ id, type: 'simulateResult', simulation });
         return;
       }
 

@@ -126,7 +126,10 @@ for (const file of ['ISOcoated_v2_eci.icc', 'PSOcoated_v3.icc']) {
       expect(a.path).toBe('cmyk');
       // A imagem tem 100 x 50 pt (5000 px de 20000): duas cores de 12,5% e 75% de papel.
       expect(a.cmyk!.paperPixels).toBe(15000);
-      expect(a.cmyk!.colors.map((c) => c.pixelShare.toFixed(3))).toEqual(['0.125', '0.125']);
+      // Arte chapada: o ruído do JPEG nas bordas vai para a tinta mais próxima ou para o papel,
+      // então as frações aproximam 12,5% (tolerância de 0,5 ponto percentual).
+      expect(a.cmyk!.colors).toHaveLength(2);
+      for (const c of a.cmyk!.colors) expect(c.pixelShare).toBeCloseTo(0.125, 2);
     });
   });
 }

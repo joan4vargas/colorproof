@@ -4,7 +4,7 @@ Este arquivo resume onde o projeto parou e como continuar. A documentação téc
 
 ## Estado do código
 
-Fases 1 a 8 implementadas, 218 testes passando (com os dois perfis). Conferir `git log` para saber o que já foi enviado ao GitHub.
+Fases 1 a 8 implementadas, 258 testes passando (com os dois perfis). Conferir `git log` para saber o que já foi enviado ao GitHub.
 
 | Fase | Situação |
 |---|---|
@@ -14,13 +14,13 @@ Fases 1 a 8 implementadas, 218 testes passando (com os dois perfis). Conferir `g
 | 5 | Análise inteira em Web Worker (pdf.js, MuPDF, lcms), com progresso, cancelamento e tempos por etapa. Verificada no Chromium. Pendente: PDFs reais grandes e memória |
 | 6 | Fluxo A: `evaluateFlowA` (round-trip B2A→A2B, ΔE00, veredito 3,0/4,0), laudo na tela, BPC medido e mantido desligado. Verificada no Chromium (seção 8d) |
 | 7 | Fluxo B: duas versões do mesmo layout, grade 32×32, ΔE00 por região, veredito pelo p95; intent relativo por padrão (diverge do D1, ver 8e.2; confirmado). Verificada no Chromium (seção 8e) |
-| 8 | Interface final (perfil compartilhado + abas dos Fluxos A e B), laudo exportável em HTML (imprime/salva em PDF) e CSV. Verificada no Chromium (seção 8f). Pendente: validação com arquivos reais e a escrita do TCC |
+| 8 | Interface final em painel escuro: menu Visão geral, Simulação (um arquivo, o programa gera a versão impressa), Amostras (cores com referência CMYK) e Relatório (laudos HTML/CSV). Seções 8f e 8g. Sugestão de cor reproduzível para amostras reprovadas: seção 8h. Cores spot (Pantone) para CMYK, com segunda opção, e filtro de arte chapada nas cores dominantes: seção 8i. Pendente: validação com arquivos reais e a escrita do TCC |
 
 ## Como retomar em outro computador
 
 1. `git clone https://github.com/joan4vargas/colorproof.git`, entrar na pasta e `npm install`.
 2. Baixar os perfis em https://eci.org/doku.php_id=en:downloads.html (`pso-coated_v3.zip` e `eci_offset_2009.zip`) e colocar `PSOcoated_v3.icc` e `ISOcoated_v2_eci.icc` em `public/profiles/`. Os `.icc` não vão para o Git (licença da ECI; `*.icc` no `.gitignore`). Guardar uma cópia deles fora do repositório.
-3. `npm test`: com os dois perfis, 218 passam; sem eles, os testes que dependem dos `.icc` são ignorados.
+3. `npm test`: com os dois perfis, 258 passam; sem eles, os testes que dependem dos `.icc` são ignorados.
 4. `npm run dev` e abrir http://localhost:5173/ para usar a interface (escolher o perfil `.icc` na tela).
 5. Configurar a identidade do Git só neste repositório: `git config user.name "Seu Nome"` e `git config user.email "seu-email"`.
 6. Em PC compartilhado, apagar o login do GitHub no Gerenciador de Credenciais do Windows ao terminar.
@@ -39,6 +39,8 @@ Fases 1 a 8 implementadas, 218 testes passando (com os dois perfis). Conferir `g
 - **k e filtro de participação mínima** das cores dominantes em arquivos reais.
 
 ## Pendências técnicas
+
+- Cores spot: confirmar com o cliente de onde vem o valor de referência do Pantone (Lab de Pantone Connect, hexadecimal ou medição) e validar o CMYK calculado contra uma prova impressa; verificar a condição em que a Pantone mede os valores.
 
 - Testar com PDFs reais de produção (InDesign, Illustrator, Canva): transparência, overprint, spot colors, degradês.
 - Medir desempenho com PDFs reais grandes (tempo, memória, travamento da interface) e revisar os limites de páginas e pixels.

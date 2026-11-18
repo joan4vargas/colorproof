@@ -1,10 +1,40 @@
 # ColorProof — Documentação técnica
 
-Estado do projeto em **17/11/2026** · Fases 1 a 8 implementadas, interface final (218 testes) · Pendências: PDFs reais de produção (Fase 4)
+Estado do projeto em **17/11/2026** · Fases 1 a 8 implementadas, interface final (253 testes) · Pendências: PDFs reais de produção (Fase 4)
 
 Este documento registra o que foi decidido, o que foi construído, como foi validado e o que ainda é limitação. Ele é escrito para servir de base à seção prática da monografia e para quem for continuar o código.
 
 ---
+
+
+## 8h. Sugestão de cor para amostras que não ficaram conformes
+
+`src/lib/report/suggest.ts` (`suggestReproducible`), chamada por `evaluateFlowA` para amostras sRGB com veredito atenção ou reprovado; o resultado fica em `ColorFinding.suggestion`.
+
+- **O que dá e o que não dá para ajustar.** Se a cor sai do gamut da condição de impressão, nenhum valor de ciano, magenta, amarelo ou preto faz a impressora chegar nela: o CMYK do perfil (B2A) já é o mais próximo que ela alcança. O que se pode mudar é a cor do projeto. A sugestão troca a cor por outra, de mesmo matiz, que a impressão reproduz.
+- **Método.** Varre variações de luminosidade (±10 L*, passo 1) e de croma (de 100% a 0%, passo 2%), com o matiz fixo. Para cada candidata roda o round-trip pelo perfil e aceita a que fica com ΔE00 de round-trip ≤ 85% do limite de aprovação (2,55 com o limite padrão 3,0: a sugestão não nasce na beirada). Entre as aceitas escolhe a que menos se afasta da original. É um mapeamento de gamut simples, não uma otimização global do CMYK.
+- **O que a tela e o laudo mostram.** A cor sugerida (sRGB e hexadecimal), o CMYK a especificar, a mudança em cada tinta (só as maiores que 1 ponto), a mudança visível em relação à original (ΔE00) e o ΔE00 entre a sugerida e a impressa dela. O laudo HTML ganha a seção "Sugestões" e o CSV, seis colunas (`sugestao_*`).
+- **Medido (ISO Coated v2, relativo).** Azul sRGB 0, 70, 255: perda 15,6; a sugerida muda a cor em ΔE00 11,7 e imprime a 2,4 dela. Verde 0, 200, 120: perda 7,35; muda 4,46; imprime a 2,5. Vinho 108, 0, 34: perda 4,44; muda 2,11; imprime a 2,3, e o CMYK quase não muda (13/100/56/63 contra 13/100/57/62): o ajuste está na cor do projeto, não na tinta.
+- **Limites.** Só caminho sRGB. Num PDF em CMYK a reprovação vem de outra causa (por exemplo, cobertura total de tinta alta), que este método não trata. A sugestão não diz que a cor original ficará mais fiel: a impressão não chega nela de qualquer modo. A troca é decisão de design, pesada pela "mudança visível". Cores de degradê ou foto (dispersão alta) têm sugestão aproximada, como o veredito.
+- **Testes.** Perfil de mentira (croma máximo 40): sugestão reproduzível, matiz mantido, mudança de tintas, cor dentro do gamut, sem candidata. Com ISO Coated v2: três cores reais. Laudo HTML e CSV.
+
+
+## 8i. Cores spot (Pantone) para CMYK
+
+Demanda: o cliente tem arquivo e impressão em Pantone e quer um CMYK igual ou parecido. Página **Cores spot** (`src/pages/SpotsPage.tsx`, estado em `src/state/useSpots.ts`).
+
+- **Valor de referência.** O app **não traz a biblioteca Pantone**: ela é proprietária, e nenhum valor foi escrito de memória no código. A referência vem de (1) o PDF, quando o arquivo declara o spot com alternativo Lab; (2) digitação em Lab (D50), hexadecimal (sRGB) ou CMYK, a partir do Pantone Connect, do Color Bridge ou de uma medição do impresso com espectrofotômetro, que é a referência mais fiel. Lab é preferível: o hexadecimal é uma conversão para tela.
+- **Leitura do PDF** (`src/lib/pdf/spotColors.ts`). O MuPDF informa, a cada pintura, o espaço Separation com o nome do spot e a tinta. Os recursos da página (e dos formulários dentro dela) trazem o espaço alternativo e a função de tinta; calculamos a 100% de tinta as funções tipo 2 e tipo 4 (interpretador mínimo de PostScript). Alternativo Lab: o Lab do PDF é levado ao D50 (Bradford, pelo ponto branco do próprio espaço). Alternativo CMYK: é só um **substituto aproximado**, não o valor da Pantone; o app avisa. DeviceN e funções de outros tipos ficam com aviso. Só PDF; nada em imagens.
+- **Cálculo** (`src/lib/spot/spotMatch.ts`, `matchSpot`). Lab de referência → CMYK pela B2A do perfil; em seguida busca local nos quatro canais (passos de 8 a 0,25) que minimiza o ΔE00 entre a referência e a previsão da A2B; arredonda para inteiros e fica com o melhor entre a busca e a B2A pura. Limite de tinta: o maior entre 300% e o que a B2A usou. ΔE00 e veredito pelos mesmos limites (3,0 e 4,0).
+- **Fora do gamut.** Muitos laranjas, verdes e azuis vivos, e as cores metálicas e fluorescentes, não existem em CMYK. O resultado é a melhor aproximação e o ΔE00 mostra a perda; o cartão explica. Não se promete igualdade.
+- **Intent.** Relativo ao papel por padrão; absoluto como opção, para um Lab de referência medido com o papel incluído. A condição em que a Pantone mede os valores dela não foi verificada: ponto aberto antes de afirmar equivalência com o Color Bridge.
+- **Diferença para o CMYK publicado pela Pantone.** O CMYK calculado aqui depende do perfil escolhido e pode diferir do que o fabricante publica, que usa outra condição de impressão.
+- **Exportação.** Laudo HTML (imprime ou salva em PDF) e CSV (`spotToHtml`, `spotToCsv`), com a origem do valor de cada cor.
+- **Testes.** Leitor de spots com PDF de alternativo Lab e de alternativo CMYK (`scripts/gerar-fixtures-spot.py`, valores inventados, não oficiais), interpretador PostScript, cálculo com perfil de mentira e com ISO Coated v2, mensagens do Worker, exportação e verificação no Chromium.
+
+**Segunda opção (variação próxima).** Além do CMYK de menor ΔE00, cada cor mostra um segundo CMYK: o de menor ΔE00 entre os que diferem do primeiro em pelo menos 5 pontos de tinta em algum canal (busca local a partir de oito vizinhos). Serve para imprimir as duas opções ao lado do Pantone e escolher a olho; pelo cálculo, a primeira é a melhor, e se a busca achar um vizinho melhor os dois trocam de lugar. Exemplo (ISO Coated v2): PANTONE 293 C: 100/76/0/0 (ΔE00 3,52) e 100/75/0/6 (3,80). Uma tentativa anterior, que mantinha o matiz do CIELAB, foi descartada: no teste visual do usuário (293 C no CorelDRAW) ficou arroxeada e pior que a primeira, porque o ângulo de matiz do CIELAB não acompanha o matiz percebido nos azuis. A segunda opção entra no laudo HTML e em cinco colunas novas do CSV (alt_C a alt_deltaE00).
+
+**Arte chapada nas cores dominantes (PDF em CMYK).** O k-means com k = 8 inventava cores num arquivo com poucas tintas: as bordas de texto e de filetes geram misturas (antialiasing) entre duas tintas, que apareciam como "roxos" e "azuis claros". Agora, se as 12 cores exatas mais frequentes cobrem pelo menos 60% da tinta, o arquivo é tratado como arte chapada: as cores dominantes são as tintas chapadas, e uma cor exata é descartada como mistura quando fica sobre o segmento entre duas outras (ou entre uma tinta e o papel), com tolerância de 6 em 255, é menos frequente que as duas pontas e tem menos de 2% da tinta. Fotos e degradês não passam no teste e seguem pelo k-means. Os limites são decisões do projeto, sem base normativa. Limite conhecido: um tom pequeno (menos de 2% da tinta) entre uma tinta e o papel é tratado como borda. Testes: 258.
 
 ## 1. Objetivo
 
@@ -504,17 +534,27 @@ Verificado no Chromium (build de produção): RGB × RGB do mesmo arquivo dá Δ
 
 ### 8f.1 Interface
 
-Uma única tela, sem servidor, em português: **perfil ICC compartilhado** (um campo, usado pelos dois fluxos) e duas abas, **Fluxo A (verificar um arquivo)** e **Fluxo B (comparar duas versões)**. Trocar o perfil refaz a análise que estiver na tela. As telas provisórias das Fases 3 a 7 (`ProfileSmokeTest`, `PdfColorTest`, `FlowBTest`) e o scaffold foram removidos. Todo o cálculo roda no Web Worker da Fase 5, com progresso e botão de cancelar.
+Uma única aplicação, sem servidor, em português, com visual de painel escuro (barra lateral, destaque verde-menta, indicadores, medidor, barras de ΔE00). No alto ficam os dois seletores: **arquivo de referência** (PDF ou imagem) e **condição de impressão** (perfil ICC CMYK). O menu lateral tem quatro páginas, todas lendo o mesmo estado (`src/state/useWorkspace.ts`):
+
+- **Visão geral:** tudo numa tela: comparador da simulação, laudo em medidor (ΔE00 no p95 das regiões), indicadores, faixa de amostras e tabela das amostras analisadas.
+- **Simulação (antigo Fluxo B):** a pessoa envia **um** arquivo e o programa gera a versão impressa (seção 8g). Comparador com divisor arrastável, lado a lado e mapa de ΔE00 por região, mais as regiões mais afetadas.
+- **Amostras (antigo Fluxo A):** cada cor dominante como retângulo colorido, dividido em "Arquivo" e "Impresso", com a referência CMYK reproduzida (barras C, M, Y, K nas cores das tintas), Lab, ΔE00, área e veredito.
+- **Relatório:** laudos exportáveis (amostras e simulação, em HTML/PDF por impressão e CSV) e o texto "Sobre o método".
+
+Enviar um arquivo (ou trocar o perfil) roda no Worker, em sequência, a análise das amostras e a simulação. A comparação de **dois arquivos** (`compareFiles`, mensagem `compare` do Worker) continua no código e testada, mas saiu da interface. As telas provisórias das Fases 3 a 7 e o scaffold foram removidos.
 
 | Arquivo | Papel |
 |---|---|
-| `src/App.tsx` | Perfil, abas e reanálise ao trocar o perfil |
-| `src/components/FlowAPanel.tsx`, `FlowBPanel.tsx` | Os dois fluxos, com tabela de resultado, veredito por faixa e botões de exportação |
-| `src/components/common.tsx`, `format.ts` | Seletor de arquivo, selo de veredito, avisos e formatação |
+| `src/App.tsx` | Menu lateral, seletores de arquivo e de perfil |
+| `src/state/useWorkspace.ts` | Arquivo, perfil, resultados, progresso e cancelamento |
+| `src/pages/*` | `OverviewPage`, `SimulationPage`, `SamplesPage`, `ReportPage` |
+| `src/components/Comparator.tsx` | Divisor, lado a lado e mapa de ΔE00 |
+| `src/components/ui.tsx`, `common.tsx`, `format.ts`, `samples.ts` | Cartão, indicador, medidor, tintas CMYK, gráficos, mapa de calor, área de soltar arquivo e cores das amostras |
+| `src/components/AboutPanel.tsx` | Texto "Sobre o método" (dentro do Relatório) |
 | `src/lib/browser/download.ts` | Baixar arquivo, imprimir pelo diálogo do navegador (salvar em PDF) e nome seguro de arquivo |
 | `src/lib/report/export.ts` | `flowAToHtml`, `flowAToCsv`, `flowBToHtml`, `flowBToCsv` (funções puras, testadas em Node) |
 
-Acessibilidade e layout: abas com `role="tablist"`, seletores de arquivo com rótulo e foco visível, resultado em região `aria-live`, cores de veredito acompanhadas de texto (não só cor), tema claro e escuro, tabelas com rolagem horizontal. Verificado no Chromium em 1100 px e em 390 px (celular), sem rolagem horizontal da página.
+Acessibilidade e layout: abas com `role="tablist"`, seletores de arquivo com rótulo e foco visível, resultado em região `aria-live`, cores de veredito acompanhadas de texto (não só cor), tema escuro (o laudo exportado segue claro, para impressão), comparador operável pelo teclado (campo de intervalo), tabelas com rolagem horizontal. Layout responsivo: em 390 px (celular) a barra lateral vira cabeçalho com o menu em uma linha. Verificado no Chromium em desktop e celular, sem rolagem horizontal da página.
 
 ### 8f.2 Laudo exportável
 
@@ -541,6 +581,17 @@ Acessibilidade e layout: abas com `role="tablist"`, seletores de arquivo com ró
 - A impressão usa o diálogo do navegador; o PDF final depende dele.
 
 ---
+
+
+## 8g. Simulação de impressão a partir de um arquivo
+
+O programa gera sozinho a versão impressa (`src/lib/simulate/simulatePrint.ts`, `IccProfileHandle.simulateRgba` e `cmyk8ToRgba`):
+
+- **Imagem ou PDF em RGB:** cada pixel vai de sRGB para CMYK (B2A do perfil) e volta para sRGB de tela (A2B), no intent escolhido (relativo, sem BPC). A diferença entre as duas imagens é o que a condição de impressão não reproduz.
+- **PDF em CMYK:** os valores C, M, Y, K lidos pelo MuPDF (sem ICC) são mostrados pelo perfil. Não há versão RGB de referência, então não há comparação, só a imagem simulada (e um aviso).
+- **Comparação:** a grade 32×32 do original contra a da simulação, ΔE00 por região, veredito pelo p95 (mesmo método da seção 8e, `compareGrids`). Só a primeira página entra na simulação; a visualização é limitada a 1,5 milhão de pixels.
+- **Limites:** os dois lados são comparados depois de passar por sRGB (8 bits); o corte de gamut do sRGB e o arredondamento entram na conta. O mapa mostra a região, não o pixel. Elementos menores que uma região não aparecem (L do Fluxo B).
+- **Validação:** testes com ISO Coated v2 (cinza volta com ΔE00 < 3; azul saturado fora do gamut > 8; vários lotes do WASM; papel vira branco; PDF em RGB e em CMYK) e verificação no Chromium (desktop e celular).
 
 ## 9. Limitações e riscos conhecidos
 
@@ -626,7 +677,7 @@ Requisitos: Node.js (versão LTS) e VS Code.
 cd colorproof        # a pasta que contém package.json
 npm install
 npm run dev          # http://localhost:5173
-npm test             # 218 testes com os dois perfis locais; sem eles, os que dependem dos .icc são ignorados
+npm test             # 253 testes com os dois perfis locais; sem eles, os que dependem dos .icc são ignorados
 ```
 
 **Perfis ICC.** Baixe `pso-coated_v3.zip` e `eci_offset_2009.zip` em https://eci.org/doku.php_id=en:downloads.html (seção *ICC profiles from ECI*), extraia e coloque `PSOcoated_v3.icc` e `ISOcoated_v2_eci.icc` em `public/profiles/`. Os `.icc` são ignorados pelo Git por causa da licença da ECI (seção 7.5). Sem os arquivos, os testes que dependem deles são ignorados.

@@ -8,10 +8,11 @@
 
 import { labD50ToRgbClipped } from '../../core/colorimetry';
 import type { Verdict, VerdictThresholds } from '../../core/verdict';
-import type { Lab, RGB } from '../../types/color';
+import type { Cmyk, Lab, RGB } from '../../types/color';
 import type { CompareOutcome } from '../compare/compareFiles';
 import type { AnalysisOutcome } from '../analysis/analysisClient';
 import type { FlowAReport } from './flowA';
+import type { SpotMatch } from '../spot/spotMatch';
 
 export interface ExportMeta {
   /** Quando o laudo foi gerado (injetado, para o texto ser reproduzível). */
@@ -56,7 +57,8 @@ const STYLE = `
 body{font:14px/1.5 system-ui,'Segoe UI',Roboto,sans-serif;color:#1f2328;max-width:900px;margin:2rem auto;padding:0 1rem}
 h1{font-size:1.5rem;margin:0 0 .25rem}h2{font-size:1.1rem;margin:1.5rem 0 .5rem}
 table{border-collapse:collapse;width:100%;margin:.5rem 0}th,td{border:1px solid #d0d7de;padding:.35rem .5rem;text-align:left;vertical-align:middle}
-th{background:#f6f8fa}.sw{display:inline-block;width:28px;height:16px;border:1px solid #888;vertical-align:middle}
+th{background:#f6f8fa}.sw{display:inline-block;width:28px;height:16px;border:1px solid #888;vertical-align:middle;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+.badge,th,.warn,.meta td:first-child{-webkit-print-color-adjust:exact;print-color-adjust:exact}
 .meta td:first-child{width:14rem;font-weight:600;background:#f6f8fa}.note{font-size:12px;color:#57606a}
 .warn{background:#fff8c5;border:1px solid #d4a72c;padding:.4rem .6rem;margin:.4rem 0}
 @media print{body{margin:0;max-width:none}}
@@ -94,6 +96,32 @@ export interface FlowAExport {
   report: FlowAReport;
 }
 
+const hexOf = (c: RGB) => `#${[c.r, c.g, c.b].map((v) => v.toString(16).padStart(2, '0')).join('').toUpperCase()}`;
+const inkChangeText = (ch: Cmyk) => {
+  const parts = (['c', 'm', 'y', 'k'] as const)
+    .filter((k) => Math.abs(ch[k]) >= 1)
+    .map((k) => `${k.toUpperCase()} ${ch[k] > 0 ? '+' : '−'}${Math.abs(ch[k]).toFixed(0)}`);
+  return parts.length ? parts.join(', ') : 'quase nenhuma';
+};
+
+function suggestionsHtml(report: FlowAReport): string {
+  const rows = report.findings.filter((f) => f.source.kind === 'rgb' && f.verdict !== 'aprovado');
+  if (rows.length === 0) return '';
+  const lines = rows
+    .map((f) => {
+      const src = (f.source as { kind: 'rgb'; rgb: RGB }).rgb;
+      const s = f.suggestion;
+      if (!s) {
+        return `<tr><td>${swatch(src)} sRGB ${src.r}, ${src.g}, ${src.b}</td><td colspan="5">Nenhuma cor próxima, com o mesmo matiz, que esta impressão reproduza dentro do limite.</td></tr>`;
+      }
+      return `<tr><td>${swatch(src)} sRGB ${src.r}, ${src.g}, ${src.b}</td><td>${swatch(s.rgb)} sRGB ${s.rgb.r}, ${s.rgb.g}, ${s.rgb.b} (${hexOf(s.rgb)})</td><td>${cmykText(s.cmyk)}</td><td>${escapeHtml(inkChangeText(s.cmykChange))}</td><td>${num(s.deltaEFromOriginal)}</td><td>${swatch(labD50ToRgbClipped(s.labPrinted))} ${num(s.deltaEPrint)}</td></tr>`;
+    })
+    .join('');
+  return `<h2>Sugestões para as cores que não ficaram aprovadas</h2>
+<table><thead><tr><th>Cor de origem</th><th>Cor sugerida</th><th>CMYK a especificar (%)</th><th>Mudança nas tintas (pontos)</th><th>Mudança visível (ΔE00)</th><th>Impressa: ΔE00 da sugerida</th></tr></thead><tbody>${lines}</tbody></table>
+<p class="note">Nenhum valor de CMYK faz a impressão alcançar uma cor fora do gamut do perfil: o CMYK do perfil já é o mais próximo que ela chega. A sugestão troca a cor do projeto por outra, de mesmo matiz, que a impressão reproduz dentro do limite de aprovação (com margem). A coluna "mudança visível" diz quanto essa troca se afasta da cor original; é decisão de design aceitá-la.</p>`;
+}
+
 export function flowAToHtml(data: FlowAExport, meta: ExportMeta): string {
   const { fileName, analysis, report } = data;
   const rows = report.findings
@@ -101,12 +129,12 @@ export function flowAToHtml(data: FlowAExport, meta: ExportMeta): string {
       const origin = f.source.kind === 'rgb' ? `sRGB ${f.source.rgb.r}, ${f.source.rgb.g}, ${f.source.rgb.b}` : `CMYK ${cmykText(f.source.cmyk)}`;
       const sw = f.source.kind === 'rgb' ? f.source.rgb : labD50ToRgbClipped(f.labSource);
       return `<tr><td>${swatch(sw)}</td><td>${escapeHtml(origin)}</td><td>${pct(f.pixelShare)}</td><td>${labText(f.labSource)}</td>
-<td>${cmykText(f.cmykReproduced)}</td><td>${labText(f.labRoundTrip)}</td><td>${num(f.deltaE)}</td><td>${badge(f.verdict)}</td>${
+<td>${cmykText(f.cmykReproduced)}</td><td>${swatch(labD50ToRgbClipped(f.labRoundTrip))} ${labText(f.labRoundTrip)}</td><td>${num(f.deltaE)}</td><td>${badge(f.verdict)}</td>${
         report.path === 'cmyk' ? `<td>${f.screenDeltaE !== undefined ? num(f.screenDeltaE) : ''}</td>` : ''
       }</tr>`;
     })
     .join('');
-  const body = `${header(meta, 'Fluxo A: o arquivo contra a condição de impressão (round-trip pelo perfil ICC)')}
+  const body = `${header(meta, 'Amostras: as cores do arquivo contra a condição de impressão (ida e volta pelo perfil ICC)')}
 <h2>Resultado</h2>
 <p>Resultado geral: ${badge(report.verdict)} (${escapeHtml(thresholdsText(report.thresholds))}). O resultado geral é o pior entre as cores.</p>
 ${metaRows([
@@ -127,13 +155,14 @@ ${warningsHtml(report.warnings)}
       ? 'No caminho CMYK, o ΔE00 na tela mede o quanto um monitor sRGB mostra da cor impressa e não entra no veredito. O CMYK reproduzido vem da tabela B2A do perfil e pode diferir da separação original.'
       : 'O ΔE00 compara a cor de origem com a que a condição de impressão reproduz (perda de gamut).'
   }</p>
+${suggestionsHtml(report)}
 ${DISCLAIMER}`;
   return page(`Laudo: ${fileName}`, body);
 }
 
 export function flowAToCsv(data: FlowAExport): string {
   const { fileName, report } = data;
-  const head = ['arquivo', 'perfil', 'intent', 'origem', 'participacao_pixels', 'L_origem', 'a_origem', 'b_origem', 'C_reproduzido', 'M_reproduzido', 'Y_reproduzido', 'K_reproduzido', 'deltaE00', 'veredito', 'deltaE00_tela'];
+  const head = ['arquivo', 'perfil', 'intent', 'origem', 'participacao_pixels', 'L_origem', 'a_origem', 'b_origem', 'C_reproduzido', 'M_reproduzido', 'Y_reproduzido', 'K_reproduzido', 'deltaE00', 'veredito', 'deltaE00_tela', 'sugestao_sRGB', 'sugestao_C', 'sugestao_M', 'sugestao_Y', 'sugestao_K', 'sugestao_mudanca_deltaE00'];
   const lines = report.findings.map((f) =>
     [
       fileName,
@@ -151,6 +180,12 @@ export function flowAToCsv(data: FlowAExport): string {
       f.deltaE,
       VERDICT_LABEL[f.verdict],
       f.screenDeltaE ?? '',
+      f.suggestion ? `sRGB ${f.suggestion.rgb.r} ${f.suggestion.rgb.g} ${f.suggestion.rgb.b}` : '',
+      f.suggestion?.cmyk.c ?? '',
+      f.suggestion?.cmyk.m ?? '',
+      f.suggestion?.cmyk.y ?? '',
+      f.suggestion?.cmyk.k ?? '',
+      f.suggestion?.deltaEFromOriginal ?? '',
     ].map(csvCell),
   );
   return csvJoin(head, lines);
@@ -183,7 +218,7 @@ Regiões aprovadas ${pct(p.shares.aprovado)} · atenção ${pct(p.shares.atencao
     })
     .join('');
   const side = (s: { path: string }) => (s.path === 'cmyk' ? 'CMYK (MuPDF + perfil)' : 'sRGB');
-  const body = `${header(meta, 'Fluxo B: referência contra simulação do mesmo layout')}
+  const body = `${header(meta, 'Simulação de impressão: arquivo original contra a versão simulada')}
 <h2>Resultado</h2>
 <p>Resultado geral: ${badge(r.verdict)}, pelo percentil 95 do ΔE00 das regiões (${escapeHtml(thresholdsText(r.thresholds))}).</p>
 ${metaRows([
@@ -223,4 +258,42 @@ function csvCell(value: string | number): string {
 
 function csvJoin(head: string[], lines: string[][]): string {
   return '﻿' + [head.join(';'), ...lines.map((l) => l.join(';'))].join('\r\n') + '\r\n';
+}
+
+// --- Cores spot (Pantone) -> CMYK ----------------------------------------------
+
+export interface SpotExport {
+  profileDescription: string;
+  intent: string;
+  thresholds: VerdictThresholds;
+  rows: Array<{ match: SpotMatch; /** De onde veio o valor de referência (texto livre). */ origin: string }>;
+}
+
+export function spotToHtml(data: SpotExport, meta: ExportMeta): string {
+  const lines = data.rows
+    .map(({ match: m, origin }) => {
+      const target = labD50ToRgbClipped(m.labTarget);
+      const printed = labD50ToRgbClipped(m.labPrinted);
+      return `<tr><td>${escapeHtml(m.name)}</td><td>${swatch(target)} ${escapeHtml(origin)}</td><td><strong>${cmykText(m.cmyk)}</strong></td><td>${swatch(printed)} ${labText(m.labPrinted)}</td><td>${num(m.deltaE)}</td><td>${badge(m.verdict)}</td><td>${[m.reproducible ? '' : 'Fora do gamut: aproximação', `Segunda opção (variação próxima): <strong>${cmykText(m.alternative.cmyk)}</strong>, ΔE00 ${num(m.alternative.deltaE)}`].filter(Boolean).join('<br>')}</td></tr>`;
+    })
+    .join('');
+  const body = `${header(meta, 'Cores spot (Pantone) para CMYK: o CMYK que mais se aproxima de cada cor')}
+${metaRows([
+  ['Perfil ICC', escapeHtml(data.profileDescription)],
+  ['Rendering intent', escapeHtml(INTENT_LABEL[data.intent] ?? data.intent)],
+  ['Limites', escapeHtml(thresholdsText(data.thresholds))],
+])}
+<h2>Cores</h2>
+<table><thead><tr><th>Cor</th><th>Referência</th><th>CMYK recomendado (%)</th><th>Como imprime (Lab)</th><th>ΔE00</th><th>Resultado</th><th>Observação</th></tr></thead><tbody>${lines}</tbody></table>
+<p class="note">O CMYK é calculado pelo perfil indicado (tabela inversa B2A, seguida de uma busca que minimiza o ΔE00 contra a previsão da tabela A2B) e arredondado para inteiros. O valor de referência de cada cor vem da coluna "Referência": o app não distribui a biblioteca Pantone. Cores fora do gamut do CMYK (muitos laranjas, verdes e azuis vivos), metálicas e fluorescentes não são reproduzíveis: o resultado é a melhor aproximação e o ΔE00 mostra o tamanho da perda. O CMYK pode diferir do que o fabricante da biblioteca publica, que usa outra condição de impressão.</p>
+${DISCLAIMER}`;
+  return page('Laudo: cores spot para CMYK', body);
+}
+
+export function spotToCsv(data: SpotExport): string {
+  const head = ['cor', 'referencia', 'perfil', 'intent', 'C', 'M', 'Y', 'K', 'tinta_total', 'L_impresso', 'a_impresso', 'b_impresso', 'deltaE00', 'resultado', 'dentro_do_gamut', 'alt_C', 'alt_M', 'alt_Y', 'alt_K', 'alt_deltaE00'];
+  const lines = data.rows.map(({ match: m, origin }) =>
+    [m.name, origin, data.profileDescription, data.intent, m.cmyk.c, m.cmyk.m, m.cmyk.y, m.cmyk.k, m.totalInk, m.labPrinted.l, m.labPrinted.a, m.labPrinted.b, m.deltaE, VERDICT_LABEL[m.verdict], m.reproducible ? 'sim' : 'não', m.alternative.cmyk.c, m.alternative.cmyk.m, m.alternative.cmyk.y, m.alternative.cmyk.k, m.alternative.deltaE].map(csvCell),
+  );
+  return csvJoin(head, lines);
 }

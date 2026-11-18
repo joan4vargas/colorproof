@@ -95,6 +95,17 @@ export interface IccProfileHandle {
   /** sRGB -> CMYK (%) deste perfil (soft proofing). Sanidade testada; validação plena fica para a Fase 7. */
   rgbToDeviceCmyk(rgb: RGB, intent?: RenderingIntent): Cmyk;
 
+  /**
+   * Simulação de impressão de uma imagem inteira: sRGB (RGBA, 8 bits) -> CMYK
+   * pelo perfil (B2A) -> sRGB de tela (A2B). Devolve RGBA do mesmo tamanho; o
+   * alfa é mantido. Cores fora do gamut do perfil voltam diferentes das de
+   * entrada, e é isso que a simulação mostra.
+   */
+  simulateRgba(rgba: ArrayLike<number>, intent?: RenderingIntent): Uint8ClampedArray;
+
+  /** CMYK de 8 bits (255 = 100%) -> sRGB RGBA, pelo perfil: como a tela mostra essa tinta. */
+  cmyk8ToRgba(samples: ArrayLike<number>, intent?: RenderingIntent): Uint8ClampedArray;
+
   libera(): void;
 }
 
@@ -203,7 +214,7 @@ export async function createColorEngine(options: ColorEngineOptions = {}): Promi
         if (!alive) throw new Error('Este perfil já foi liberado (libera()).');
       };
 
-      const transform = (kind: 'a2b' | 'b2a' | 'rgb', intent: RenderingIntent): number => {
+      const transform = (kind: 'a2b' | 'b2a' | 'rgb' | 'a2rgb', intent: RenderingIntent): number => {
         assertAlive();
         const key = `${kind}:${intent}`;
         let t = transforms.get(key);
@@ -213,9 +224,12 @@ export async function createColorEngine(options: ColorEngineOptions = {}): Promi
             t = lcms.cmsCreateTransform(profile, TYPE_CMYK_16, lab, TYPE_Lab_16, code, flags);
           } else if (kind === 'b2a') {
             t = lcms.cmsCreateTransform(lab, TYPE_Lab_16, profile, TYPE_CMYK_16, code, flags);
-          } else {
+          } else if (kind === 'rgb') {
             srgb ||= lcms.cmsCreate_sRGBProfile();
             t = lcms.cmsCreateTransform(srgb, TYPE_RGB_16, profile, TYPE_CMYK_16, code, flags);
+          } else {
+            srgb ||= lcms.cmsCreate_sRGBProfile();
+            t = lcms.cmsCreateTransform(profile, TYPE_CMYK_16, srgb, TYPE_RGB_16, code, flags);
           }
           transformOrThrow(t, `${kind} (${intent})`);
           transforms.set(key, t);
@@ -274,6 +288,57 @@ export async function createColorEngine(options: ColorEngineOptions = {}): Promi
             1,
           );
           return decodeCmyk16(out);
+        },
+
+        simulateRgba(rgba, intent = 'relative') {
+          if (rgba.length % 4 !== 0) throw new Error('simulateRgba: o número de amostras precisa ser múltiplo de 4.');
+          const total = rgba.length / 4;
+          const out = new Uint8ClampedArray(rgba.length);
+          const toCmyk = transform('rgb', intent);
+          const toRgb = transform('a2rgb', intent);
+          const CHUNK = 32768;
+          for (let start = 0; start < total; start += CHUNK) {
+            const n = Math.min(CHUNK, total - start);
+            const input = new Uint16Array(n * 3);
+            for (let i = 0; i < n; i++) {
+              const o = (start + i) * 4;
+              input[i * 3] = rgba[o] * 257;
+              input[i * 3 + 1] = rgba[o + 1] * 257;
+              input[i * 3 + 2] = rgba[o + 2] * 257;
+            }
+            const cmyk = lcms.cmsDoTransform(toCmyk, input, n);
+            const rgb = lcms.cmsDoTransform(toRgb, cmyk, n);
+            for (let i = 0; i < n; i++) {
+              const o = (start + i) * 4;
+              out[o] = Math.round(rgb[i * 3] / 257);
+              out[o + 1] = Math.round(rgb[i * 3 + 1] / 257);
+              out[o + 2] = Math.round(rgb[i * 3 + 2] / 257);
+              out[o + 3] = rgba[o + 3];
+            }
+          }
+          return out;
+        },
+
+        cmyk8ToRgba(samples, intent = 'relative') {
+          if (samples.length % 4 !== 0) throw new Error('cmyk8ToRgba: o número de amostras precisa ser múltiplo de 4.');
+          const total = samples.length / 4;
+          const out = new Uint8ClampedArray(total * 4);
+          const toRgb = transform('a2rgb', intent);
+          const CHUNK = 32768;
+          for (let start = 0; start < total; start += CHUNK) {
+            const n = Math.min(CHUNK, total - start);
+            const input = new Uint16Array(n * 4);
+            for (let i = 0; i < input.length; i++) input[i] = samples[start * 4 + i] * 257;
+            const rgb = lcms.cmsDoTransform(toRgb, input, n);
+            for (let i = 0; i < n; i++) {
+              const o = (start + i) * 4;
+              out[o] = Math.round(rgb[i * 3] / 257);
+              out[o + 1] = Math.round(rgb[i * 3 + 1] / 257);
+              out[o + 2] = Math.round(rgb[i * 3 + 2] / 257);
+              out[o + 3] = 255;
+            }
+          }
+          return out;
         },
 
         libera() {

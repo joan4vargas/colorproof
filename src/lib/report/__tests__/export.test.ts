@@ -59,7 +59,11 @@ describe.skipIf(!hasProfile)('exportação com ISO Coated v2', () => {
     expect(html).toContain('ISO Coated v2 (ECI)');
     expect(html).toContain('colorimétrico relativo');
     expect(html).toContain('Reprovado'); // o azul do PDF de teste
-    expect(html.match(/<tr><td><span class="sw"/g)).toHaveLength(6);
+    const main = html.slice(html.indexOf('Cores dominantes'), html.indexOf('Sugestões'));
+    expect(main.match(/<tr><td><span class="sw"/g)).toHaveLength(6);
+    // o azul fora do gamut ganha uma sugestão, com a explicação de que o CMYK sozinho não resolve
+    expect(html).toContain('Sugestões para as cores que não ficaram aprovadas');
+    expect(html).toContain('Nenhum valor de CMYK faz a impressão alcançar uma cor fora do gamut');
     expect(html).toContain('não</strong> é um laudo de conformidade ISO 12647');
     expect(html).toContain('2026-11-17 19:00 UTC');
     expect(html).not.toContain('ΔE00 na tela'); // só no caminho CMYK
@@ -84,7 +88,8 @@ describe.skipIf(!hasProfile)('exportação com ISO Coated v2', () => {
     expect(lines).toHaveLength(7);
     expect(lines[0].split(';')[0]).toBe('arquivo');
     expect(lines[1]).toMatch(/;\d+,\d{4};/); // decimal com vírgula
-    expect(lines[1].split(';')).toHaveLength(15);
+    expect(lines[1].split(';')).toHaveLength(21);
+    expect(lines[0]).toContain('sugestao_sRGB');
   });
 
   it('CSV neutraliza nome de arquivo que parece fórmula de planilha', () => {

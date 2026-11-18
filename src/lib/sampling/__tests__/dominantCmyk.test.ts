@@ -44,6 +44,36 @@ describe('extractDominantCmykColors (conversor falso)', () => {
     expect(r.colors[1].cmyk).toEqual({ c: 0, m: 0, y: 0, k: 100 });
   });
 
+  it('arte chapada: misturas de borda entre duas tintas e o papel não viram cores', () => {
+    const BLUE: [number, number, number, number] = [200, 150, 0, 0];
+    const PINK: [number, number, number, number] = [0, 200, 50, 0];
+    const mix = (a: number[], b: number[], t: number): [number, number, number, number] =>
+      [0, 1, 2, 3].map((j) => Math.round(a[j] + (b[j] - a[j]) * t)) as [number, number, number, number];
+    const r = extractDominantCmykColors(
+      pixels([
+        [PAPER, 100], [BLUE, 20000], [PINK, 900], [BLACK, 120],
+        [mix(BLUE, PINK, 0.5), 40], [mix(BLUE, PINK, 0.3), 25], // roxos de borda
+        [mix(BLUE, PAPER, 0.5), 150], [mix(BLUE, PAPER, 0.7), 90], // azuis claros de texto
+      ]),
+      fake,
+      { k: 8 },
+    );
+    expect(r.flatArt).toBe(true);
+    expect(r.colors.map((c) => c.cmyk)).toEqual([
+      { c: (200 / 255) * 100, m: (150 / 255) * 100, y: 0, k: 0 },
+      { c: 0, m: (200 / 255) * 100, y: (50 / 255) * 100, k: 0 },
+      { c: 0, m: 0, y: 0, k: 100 },
+    ]);
+  });
+
+  it('degradê (muitas cores, nenhuma dominante) segue pelo k-means, sem arte chapada', () => {
+    const blocks: Array<[[number, number, number, number], number]> = [];
+    for (let i = 0; i < 200; i++) blocks.push([[i, 255 - i, (i * 7) % 255, 0], 10]);
+    const r = extractDominantCmykColors(pixels(blocks), fake, { k: 4 });
+    expect(r.flatArt).toBeUndefined();
+    expect(r.colors).toHaveLength(4);
+  });
+
   it('um tom claro (1% de ciano) continua sendo tinta', () => {
     const r = extractDominantCmykColors(pixels([[PAPER, 10], [[3, 0, 0, 0], 10]]), fake, { k: 2 });
     expect(r.paperPixels).toBe(10);

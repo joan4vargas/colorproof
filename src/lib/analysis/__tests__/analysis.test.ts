@@ -280,3 +280,33 @@ describe.skipIf(!hasProfile)('AnalysisClient com perfil CMYK', () => {
     expect(() => client.cancel()).not.toThrow();
   });
 });
+
+describe('AnalysisClient: cores spot', () => {
+  it('lista os spots de um PDF, sem precisar de perfil', async () => {
+    const client = new AnalysisClient(() => fakeWorker(makeEnv()));
+    const spots = await client.listSpots(fixture('spot-lab.pdf'));
+    expect(spots.map((s) => s.name)).toEqual(['PANTONE LAB TESTE C']);
+    expect(spots[0].lab?.l).toBeCloseTo(45, 0);
+    client.dispose();
+  });
+
+  it('calcular o CMYK sem perfil dá erro claro', async () => {
+    const client = new AnalysisClient(() => fakeWorker(makeEnv()));
+    await expect(client.matchSpots([{ name: 'x', ref: { kind: 'lab', lab: { l: 50, a: 20, b: 10 } } }])).rejects.toThrow(/perfil/i);
+    client.dispose();
+  });
+
+  it.skipIf(!hasProfile)('com perfil: devolve o melhor CMYK de cada cor e a descrição do perfil', async () => {
+    const client = new AnalysisClient(() => fakeWorker(makeEnv()));
+    await client.setProfile(readFileSync(PROFILE_PATH).buffer.slice(0) as ArrayBuffer);
+    const { matches, profileDescription } = await client.matchSpots([
+      { name: 'dentro do gamut', ref: { kind: 'lab', lab: { l: 45, a: 40, b: 25 } } },
+      { name: 'fora do gamut', ref: { kind: 'lab', lab: { l: 55, a: -75, b: 5 } } },
+    ]);
+    expect(profileDescription).toContain('ISO Coated v2');
+    expect(matches).toHaveLength(2);
+    expect(matches[0].verdict).toBe('aprovado');
+    expect(matches[1].deltaE).toBeGreaterThan(matches[0].deltaE);
+    client.dispose();
+  });
+});

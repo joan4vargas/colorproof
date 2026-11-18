@@ -88,6 +88,17 @@ describe('comparePage / compareGrids', () => {
     expect(p.compared).toBe(2);
   });
 
+  it('deltaEGrid traz o ΔE00 de cada região e null onde as duas versões são papel', () => {
+    const half = (c: RGB) => gridFromRgba(rgba(40, 40, (x) => (x < 20 ? c : WHITE)), 2);
+    const p = comparePage(1, half(RED), half(GREY));
+    expect(p.deltaEGrid).toHaveLength(4);
+    expect(p.deltaEGrid[1]).toBeNull(); // coluna direita: papel nas duas
+    expect(p.deltaEGrid[3]).toBeNull();
+    expect(p.deltaEGrid[0]).toBeGreaterThan(20);
+    expect(p.deltaEGrid[2]).toBe(p.deltaEGrid[0]);
+    expect(p.deltaEGrid.filter((v) => v !== null)).toHaveLength(p.compared);
+  });
+
   it('papel de um lado e tinta do outro é comparado (layout diferente aparece)', () => {
     const p = comparePage(1, uniform(RED), uniform(WHITE));
     expect(p.compared).toBe(16);

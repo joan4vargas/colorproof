@@ -28,6 +28,10 @@ export interface PageComparison {
   /** Veredito pelo pior caso (informativo, mais rígido). */
   worstCaseVerdict: Verdict;
   worst: WorstCell[];
+  /** Razão largura/altura da página (para desenhar o mapa de regiões na proporção certa). */
+  aspect: number;
+  /** ΔE00 de cada região (grade x grade, linha a linha, de cima para baixo); null = papel nas duas versões. */
+  deltaEGrid: Array<number | null>;
 }
 
 export interface WorstCell {
@@ -87,9 +91,11 @@ export function comparePage(
   }
 
   const items: WorstCell[] = [];
+  const deltaEGrid: Array<number | null> = new Array(reference.cells.length).fill(null);
   reference.cells.forEach((r, i) => {
     const s = simulation.cells[i];
     if (r.paper && s.paper) return;
+    deltaEGrid[i] = deltaE2000(r.lab, s.lab);
     items.push({
       row: Math.floor(i / reference.grid),
       col: i % reference.grid,
@@ -117,6 +123,8 @@ export function comparePage(
     verdict: classifyDeltaE(p95, thresholds),
     worstCaseVerdict: classifyDeltaE(max, thresholds),
     worst: [...items].sort((a, b) => b.deltaE - a.deltaE).slice(0, worstCount),
+    deltaEGrid,
+    aspect: reference.aspect,
   };
 }
 

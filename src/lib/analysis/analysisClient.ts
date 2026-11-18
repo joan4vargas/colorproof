@@ -13,7 +13,11 @@ import type { CompareOutcome, CompareStage } from '../compare/compareFiles';
 import { LayoutMismatchError } from '../compare/flowB';
 import type { FlowAReport } from '../report/flowA';
 import { CmykProfileRequiredError, type AnalysisStage, type PdfAnalysis } from '../pdf/analyzePdf';
-import type { AnalysisParams, CompareParams, WorkerRequest, WorkerResponse } from './protocol';
+import type { PrintSimulation, SimulateStage } from '../simulate/simulatePrint';
+import type { SpotColor } from '../pdf/spotColors';
+import type { SpotInput, SpotMatch } from '../spot/spotMatch';
+import type { RenderingIntent } from '../icc/colorEngine';
+import type { AnalysisParams, CompareParams, SimulateParams, WorkerRequest, WorkerResponse } from './protocol';
 
 export interface WorkerLike {
   postMessage(message: WorkerRequest, transfer?: Transferable[]): void;
@@ -40,12 +44,17 @@ export interface CompareOptions extends CompareParams {
   onProgress?: (stage: CompareStage) => void;
 }
 
-type ProgressFn = (stage: AnalysisStage | CompareStage) => void;
+export interface SimulateOptions extends SimulateParams {
+  onProgress?: (stage: SimulateStage) => void;
+}
+
+type AnyStage = AnalysisStage | CompareStage | SimulateStage;
+type ProgressFn = (stage: AnyStage) => void;
 
 interface Pending {
   resolve: (value: never) => void;
   reject: (reason: Error) => void;
-  onProgress?: (stage: AnalysisStage | CompareStage) => void;
+  onProgress?: ProgressFn;
 }
 
 const toArrayBuffer = (data: ArrayBuffer | Uint8Array): ArrayBuffer =>
@@ -106,6 +115,28 @@ export class AnalysisClient {
     return this.request<CompareOutcome>(
       (id) => ({ id, type: 'compare', reference: ref, simulation: sim, params }),
       [ref.file, sim.file],
+      onProgress as ProgressFn | undefined,
+    );
+  }
+
+  /** Lista as cores spot (Pantone etc.) de um PDF. Não precisa de perfil. */
+  listSpots(file: ArrayBuffer | Uint8Array): Promise<SpotColor[]> {
+    const buffer = toArrayBuffer(file);
+    return this.request<SpotColor[]>((id) => ({ id, type: 'spotList', file: buffer }), [buffer]);
+  }
+
+  /** Melhor CMYK de cada cor spot, pelo perfil carregado. */
+  matchSpots(items: SpotInput[], intent?: RenderingIntent): Promise<{ matches: SpotMatch[]; profileDescription: string }> {
+    return this.request<{ matches: SpotMatch[]; profileDescription: string }>((id) => ({ id, type: 'spotMatch', items, intent }), []);
+  }
+
+  /** Simula a impressão de um arquivo (PDF ou imagem) pelo perfil carregado. */
+  simulate(file: ArrayBuffer | Uint8Array, mime: string, options: SimulateOptions = {}): Promise<PrintSimulation> {
+    const { onProgress, ...params } = options;
+    const buffer = toArrayBuffer(file);
+    return this.request<PrintSimulation>(
+      (id) => ({ id, type: 'simulate', input: { file: buffer, mime }, params }),
+      [buffer],
       onProgress as ProgressFn | undefined,
     );
   }
@@ -185,14 +216,20 @@ export class AnalysisClient {
         ? { ...response.analysis, report: response.report }
         : response.type === 'compareResult'
           ? response.outcome
-          : response.description,
+          : response.type === 'simulateResult'
+            ? response.simulation
+            : response.type === 'spotListResult'
+              ? response.spots
+              : response.type === 'spotMatchResult'
+                ? { matches: response.matches, profileDescription: response.profileDescription }
+                : response.description,
     );
   }
 
   private request<T>(
     build: (id: number) => WorkerRequest,
     transfer: Transferable[],
-    onProgress?: (stage: AnalysisStage | CompareStage) => void,
+    onProgress?: ProgressFn,
   ): Promise<T> {
     const worker = this.ensureWorker();
     const id = this.nextId++;

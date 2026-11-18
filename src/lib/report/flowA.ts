@@ -27,6 +27,7 @@ import {
 import type { Cmyk, Lab, RGB } from '../../types/color';
 import type { RenderingIntent } from '../icc/colorEngine';
 import type { PdfAnalysis } from '../pdf/analyzePdf';
+import { suggestReproducible, suggestionTarget, type ColorSuggestion } from './suggest';
 
 /** O que o relatório precisa do perfil (o `IccProfileHandle` atende). */
 export interface RoundTripProfile {
@@ -51,6 +52,11 @@ export interface ColorFinding {
   screenDeltaE?: number;
   /** Fração de todos os pixels (papel incluído) que esta cor ocupa. */
   pixelShare: number;
+  /**
+   * Só cores sRGB que não ficaram aprovadas: uma cor próxima que a impressão
+   * reproduz dentro do limite. `null` quando a busca não achou nenhuma.
+   */
+  suggestion?: ColorSuggestion | null;
   /** Dispersão do cluster (ΔE00): alta indica degradê ou foto, cor "média". */
   spread: number;
 }
@@ -104,6 +110,12 @@ export function evaluateFlowA(
       pixelShare,
       spread,
     };
+    if (source.kind === 'rgb' && finding.verdict !== 'aprovado') {
+      finding.suggestion = suggestReproducible(labSource, finding.cmykReproduced, profile, {
+        intent,
+        target: suggestionTarget(thresholds.approvedMax),
+      });
+    }
     if (source.kind === 'cmyk') {
       finding.screenDeltaE = deltaE2000(labSource, rgbToLabD50(labD50ToRgbClipped(labSource)));
     }
