@@ -77,3 +77,25 @@ describe('extractDominantColors', () => {
     expect(extractDominantColors(img, { k: 3 })).toEqual(extractDominantColors(img, { k: 3 }));
   });
 });
+
+describe('extractDominantColors: arte chapada', () => {
+  it('misturas de borda (azul com branco, azul com rosa) não viram cores; só as tintas', () => {
+    const blocks: Array<[[number, number, number], number]> = [
+      [[30, 60, 160], 20000], [[220, 40, 140], 900], [[10, 10, 10], 120],
+      [[142, 157, 207], 150], [[75, 99, 179], 90], // azul + branco
+      [[125, 50, 150], 40], [[90, 55, 155], 25], // azul + rosa
+    ];
+    const total = blocks.reduce((n, [, c]) => n + c, 0);
+    const data = new Uint8ClampedArray((total + 500) * 4);
+    let p = 0;
+    for (let i = 0; i < 500; i++, p += 4) data.set([255, 255, 255, 255], p);
+    for (const [c, n] of blocks) for (let i = 0; i < n; i++, p += 4) data.set([c[0], c[1], c[2], 255], p);
+    const r = extractDominantColors(data, { k: 8 });
+    expect(r.flatArt).toBe(true);
+    expect(r.colors.map((c) => c.rgb)).toEqual([
+      { r: 30, g: 60, b: 160 },
+      { r: 220, g: 40, b: 140 },
+      { r: 10, g: 10, b: 10 },
+    ]);
+  });
+});

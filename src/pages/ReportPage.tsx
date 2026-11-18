@@ -1,7 +1,7 @@
 // Relatório: laudos exportáveis e o texto do método.
 
 import AboutPanel from '../components/AboutPanel';
-import { Card, Icon } from '../components/ui';
+import { Card, Help, Icon } from '../components/ui';
 import { downloadText, printHtml, reportFileName } from '../lib/browser/download';
 import type { CompareOutcome } from '../lib/compare/compareFiles';
 import { flowAToCsv, flowAToHtml, flowBToCsv, flowBToHtml } from '../lib/report/export';
@@ -34,43 +34,45 @@ export default function ReportPage({ ws }: { ws: Workspace }) {
       {file && <Progress ws={ws} />}
       {file && (
         <div className="grid g-1-1">
-          <Card title="Laudo das amostras" subtitle="Cada cor dominante contra a condição de impressão, com o resultado geral.">
+          <Card title="Laudo das cores">
             {samples ? (
               <div className="actions">
                 <button type="button" className="btn primary" onClick={() => printHtml(flowAToHtml(samples, meta()))}>
-                  <Icon name="print" size={18} /> Imprimir ou salvar em PDF
+                  <Icon name="print" size={18} /> Imprimir / PDF
                 </button>
                 <button type="button" className="btn" onClick={() => downloadText(reportFileName(file.name, 'html'), flowAToHtml(samples, meta()), 'text/html')}>
-                  <Icon name="download" size={18} /> Laudo (HTML)
+                  <Icon name="download" size={18} /> HTML
                 </button>
                 <button type="button" className="btn" onClick={() => downloadText(reportFileName(file.name, 'csv'), flowAToCsv(samples), 'text/csv')}>
-                  <Icon name="table" size={18} /> Tabela (CSV)
+                  <Icon name="table" size={18} /> Excel (CSV)
                 </button>
               </div>
             ) : (
-              <p className="muted">Disponível quando a análise terminar com um perfil de impressão escolhido.</p>
+              <p className="muted">Escolha o perfil de impressão para gerar.</p>
             )}
           </Card>
-          <Card title="Laudo da simulação" subtitle="Original contra simulação, região por região, com o resultado pelo percentil 95.">
+          <Card title="Laudo da simulação">
             {sim ? (
               <div className="actions">
                 <button type="button" className="btn primary" onClick={() => printHtml(flowBToHtml(sim, meta()))}>
-                  <Icon name="print" size={18} /> Imprimir ou salvar em PDF
+                  <Icon name="print" size={18} /> Imprimir / PDF
                 </button>
                 <button type="button" className="btn" onClick={() => downloadText(reportFileName(`${file.name}-simulacao`, 'html'), flowBToHtml(sim, meta()), 'text/html')}>
-                  <Icon name="download" size={18} /> Laudo (HTML)
+                  <Icon name="download" size={18} /> HTML
                 </button>
                 <button type="button" className="btn" onClick={() => downloadText(reportFileName(`${file.name}-simulacao`, 'csv'), flowBToCsv(sim), 'text/csv')}>
-                  <Icon name="table" size={18} /> Tabela (CSV)
+                  <Icon name="table" size={18} /> Excel (CSV)
                 </button>
               </div>
             ) : (
-              <p className="muted">Disponível para imagens e PDFs em RGB, depois da simulação. PDFs em CMYK não têm versão RGB para comparar.</p>
+              <p className="muted">Só para imagens e PDFs em RGB.</p>
             )}
           </Card>
         </div>
       )}
-      <AboutPanel />
+      <Help title="Como funciona">
+        <AboutPanel />
+      </Help>
     </div>
   );
 }

@@ -11,7 +11,7 @@
 // As faixas de ΔE00 são as de `verdict.ts` (decisão D2).
 
 import { deltaE2000 } from '../../core/colorimetry';
-import { DEFAULT_THRESHOLDS, classifyDeltaE, worstVerdict, type Verdict, type VerdictThresholds } from '../../core/verdict';
+import { DEFAULT_THRESHOLDS, MEAN_DELTA_E_MAX, classifyDeltaE, worstVerdict, type Verdict, type VerdictThresholds } from '../../core/verdict';
 import type { Lab } from '../../types/color';
 import type { LabGrid } from './labGrid';
 
@@ -113,14 +113,18 @@ export function comparePage(
   const p95 = percentile(sorted, 0.95);
   const max = n > 0 ? sorted[n - 1] : 0;
 
+  const mean = n > 0 ? sorted.reduce((a, b) => a + b, 0) / n : 0;
+  // P95 pelas faixas e média pelo limite de 2,5 (ISO 12647-7:2016): média alta nunca fica "aprovado".
+  const verdict = worstVerdict([classifyDeltaE(p95, thresholds), mean > MEAN_DELTA_E_MAX ? 'atencao' : 'aprovado']);
+
   return {
     pageNumber,
     compared: n,
-    meanDeltaE: n > 0 ? sorted.reduce((a, b) => a + b, 0) / n : 0,
+    meanDeltaE: mean,
     p95DeltaE: p95,
     maxDeltaE: max,
     shares,
-    verdict: classifyDeltaE(p95, thresholds),
+    verdict,
     worstCaseVerdict: classifyDeltaE(max, thresholds),
     worst: [...items].sort((a, b) => b.deltaE - a.deltaE).slice(0, worstCount),
     deltaEGrid,

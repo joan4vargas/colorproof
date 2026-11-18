@@ -25,7 +25,7 @@ Demanda: o cliente tem arquivo e impressão em Pantone e quer um CMYK igual ou p
 
 - **Valor de referência.** O app **não traz a biblioteca Pantone**: ela é proprietária, e nenhum valor foi escrito de memória no código. A referência vem de (1) o PDF, quando o arquivo declara o spot com alternativo Lab; (2) digitação em Lab (D50), hexadecimal (sRGB) ou CMYK, a partir do Pantone Connect, do Color Bridge ou de uma medição do impresso com espectrofotômetro, que é a referência mais fiel. Lab é preferível: o hexadecimal é uma conversão para tela.
 - **Leitura do PDF** (`src/lib/pdf/spotColors.ts`). O MuPDF informa, a cada pintura, o espaço Separation com o nome do spot e a tinta. Os recursos da página (e dos formulários dentro dela) trazem o espaço alternativo e a função de tinta; calculamos a 100% de tinta as funções tipo 2 e tipo 4 (interpretador mínimo de PostScript). Alternativo Lab: o Lab do PDF é levado ao D50 (Bradford, pelo ponto branco do próprio espaço). Alternativo CMYK: é só um **substituto aproximado**, não o valor da Pantone; o app avisa. DeviceN e funções de outros tipos ficam com aviso. Só PDF; nada em imagens.
-- **Cálculo** (`src/lib/spot/spotMatch.ts`, `matchSpot`). Lab de referência → CMYK pela B2A do perfil; em seguida busca local nos quatro canais (passos de 8 a 0,25) que minimiza o ΔE00 entre a referência e a previsão da A2B; arredonda para inteiros e fica com o melhor entre a busca e a B2A pura. Limite de tinta: o maior entre 300% e o que a B2A usou. ΔE00 e veredito pelos mesmos limites (3,0 e 4,0).
+- **Cálculo** (`src/lib/spot/spotMatch.ts`, `matchSpot`). Lab de referência → CMYK pela B2A do perfil; em seguida busca local nos quatro canais (passos de 8 a 0,25) que minimiza o ΔE00 entre a referência e a previsão da A2B; arredonda para inteiros e fica com o melhor entre a busca e a B2A pura. Limite de tinta: o maior entre 300% e o que a B2A usou. ΔE00 e veredito pelos mesmos limites (3,0 e 5,0; ver D2).
 - **Fora do gamut.** Muitos laranjas, verdes e azuis vivos, e as cores metálicas e fluorescentes, não existem em CMYK. O resultado é a melhor aproximação e o ΔE00 mostra a perda; o cartão explica. Não se promete igualdade.
 - **Intent.** Relativo ao papel por padrão; absoluto como opção, para um Lab de referência medido com o papel incluído. A condição em que a Pantone mede os valores dela não foi verificada: ponto aberto antes de afirmar equivalência com o Color Bridge.
 - **Diferença para o CMYK publicado pela Pantone.** O CMYK calculado aqui depende do perfil escolhido e pode diferir do que o fabricante publica, que usa outra condição de impressão.
@@ -34,7 +34,11 @@ Demanda: o cliente tem arquivo e impressão em Pantone e quer um CMYK igual ou p
 
 **Segunda opção (variação próxima).** Além do CMYK de menor ΔE00, cada cor mostra um segundo CMYK: o de menor ΔE00 entre os que diferem do primeiro em pelo menos 5 pontos de tinta em algum canal (busca local a partir de oito vizinhos). Serve para imprimir as duas opções ao lado do Pantone e escolher a olho; pelo cálculo, a primeira é a melhor, e se a busca achar um vizinho melhor os dois trocam de lugar. Exemplo (ISO Coated v2): PANTONE 293 C: 100/76/0/0 (ΔE00 3,52) e 100/75/0/6 (3,80). Uma tentativa anterior, que mantinha o matiz do CIELAB, foi descartada: no teste visual do usuário (293 C no CorelDRAW) ficou arroxeada e pior que a primeira, porque o ângulo de matiz do CIELAB não acompanha o matiz percebido nos azuis. A segunda opção entra no laudo HTML e em cinco colunas novas do CSV (alt_C a alt_deltaE00).
 
-**Arte chapada nas cores dominantes (PDF em CMYK).** O k-means com k = 8 inventava cores num arquivo com poucas tintas: as bordas de texto e de filetes geram misturas (antialiasing) entre duas tintas, que apareciam como "roxos" e "azuis claros". Agora, se as 12 cores exatas mais frequentes cobrem pelo menos 60% da tinta, o arquivo é tratado como arte chapada: as cores dominantes são as tintas chapadas, e uma cor exata é descartada como mistura quando fica sobre o segmento entre duas outras (ou entre uma tinta e o papel), com tolerância de 6 em 255, é menos frequente que as duas pontas e tem menos de 2% da tinta. Fotos e degradês não passam no teste e seguem pelo k-means. Os limites são decisões do projeto, sem base normativa. Limite conhecido: um tom pequeno (menos de 2% da tinta) entre uma tinta e o papel é tratado como borda. Testes: 258.
+**Arte chapada nas cores dominantes (PDF em CMYK).** O k-means com k = 8 inventava cores num arquivo com poucas tintas: as bordas de texto e de filetes geram misturas (antialiasing) entre duas tintas, que apareciam como "roxos" e "azuis claros". Agora, se as 12 cores exatas mais frequentes cobrem pelo menos 60% da tinta, o arquivo é tratado como arte chapada: as cores dominantes são as tintas chapadas, e uma cor exata é descartada como mistura quando fica sobre o segmento entre duas outras (ou entre uma tinta e o papel), com tolerância de 6 em 255, é menos frequente que as duas pontas e tem menos de 2% da tinta. Fotos e degradês não passam no teste e seguem pelo k-means. Os limites são decisões do projeto, sem base normativa. Limite conhecido: um tom pequeno (menos de 2% da tinta) entre uma tinta e o papel é tratado como borda. Testes: 261.
+
+**Precisão das amostras e dados do laudo (18/11/2026).** (1) A cor de uma amostra agora é sempre uma cor exata do arquivo: no caminho CMYK o Lab vem do CMYK exato mais frequente do grupo (antes vinha do centro do grupo, que podia ser uma cor inexistente), e o filtro de arte chapada passou a valer também no caminho RGB. (2) O laudo mostra Lab com duas casas, o Lab impresso, ΔE00, ΔE\*ab e ΔH\*ab de cada cor (o CSV ganhou cinco colunas) e uma seção com a origem dos limites (D2). Testes: 267.
+
+**PDF com cores spot (18/11/2026).** Num PDF com Pantone, o app dizia "o PDF já está em CMYK", o que confundia: o arquivo é spot, e o CMYK mostrado é o substituto que o arquivo guarda. Agora, depois da análise, o app lista os spots do PDF em segundo plano (`fileSpots`); se houver, as páginas Visão geral, Simulação e Amostras mostram um aviso com os nomes e o botão "Ver CMYK de cada cor", que abre Cores spot, lê os spots do PDF e já calcula. Os avisos genéricos ("já está em CMYK", "spot colors ou espaços especiais") somem nesse caso. Testes: 269.
 
 ## 1. Objetivo
 
@@ -427,14 +431,20 @@ Decididas pelo autor com base nas medições das seções 7.4 e 8b. São escolha
 
 **D1. Rendering intent (L10).** Fluxo A (cor de PDF/sRGB, ida e volta pelo perfil): **relativo colorimétrico**. Fluxo B (CMYK contra os valores de referência da condição de impressão): **absoluto**, porque os dados de caracterização são Lab absoluto. Compensação de ponto preto (BPC): **desligada**, confirmada pela medição da Fase 6 (seção 8d.2).
 
-**D2. Limiar de ΔE00 do veredito (L4, L9).** Três faixas: **aprovado ≤ 3,0**; **atenção de 3,0 a 4,0**; **reprovado > 4,0**. Fundamento: piso de erro do round-trip em cores reprodutíveis (patches de caracterização, intent relativo), medido nos dois perfis:
+**D2. Limiar de ΔE00 do veredito (L4, L9), revisado em 18/11/2026 com base na norma.** Três faixas: **aprovado ≤ 3,0**; **atenção de 3,0 a 5,0**; **reprovado > 5,0**; na simulação (Fluxo B), a média das regiões acima de **2,5** também impede o "aprovado". Antes eram 3,0 e 4,0, só decisão de projeto.
 
-| Perfil | Média | p99 | > 2 | > 3 | > 4 | > 5 |
-|---|---|---|---|---|---|---|
-| ISO Coated v2 | 0,29 | 2,14 | 1,36 % | 0,49 % | 0,25 % | 0 % |
-| PSO Coated v3 | 0,39 | 2,34 | 2,16 % | 0,25 % | 0 % | 0 % |
+Origem dos números (consultados em 18/11/2026; as normas ISO são pagas e o texto completo não foi lido, então os valores vêm de fontes que os reproduzem):
 
-Com o corte de reprovação em 4,0, até 0,25 % dos patches dentro do gamut seriam reprovados só por erro do método. Perda de gamut real é bem maior (sRGB verde puro 18 ΔE00, azul 14 a 16, ciano 14, vermelho 5 a 6, laranja 2,6 a 2,7; cinza 50 % 0,1). As tolerâncias numéricas da ISO 12647-2 **não foram verificadas** e a norma usa ΔE\*ab; o valor do trabalho precisa ser justificado com bibliografia antes de ser citado como relacionado à norma.
+| Valor | O que é | Fonte |
+|---|---|---|
+| 3,0 | ΔE\*00 máximo dos sólidos de cores primárias e de cores spot, prova contratual (ISO 12647-7:2016) | Fogra/bvdm, *MediaStandard Print 2018*, Tabelas 30 e 31 |
+| 5,0 | ΔE\*00 máximo de todos os patches e P95 (ISO 12647-7:2016) | idem |
+| 2,5 | ΔE\*00 médio de todos os patches (ISO 12647-7:2016) | idem |
+| ΔE\*ab ≤ 5 | desvio de sólidos em tiragem (ISO 12647-2:2013), **normativo**; os valores em ΔE\*00 da mesma tabela (K 5; C, M, Y 3,5; flutuação 4 e 2,8) são **apenas informativos** | idem, Tabela 20; conferido em Typos, *Production Parameters and their Tolerances* (2019) |
+
+O que é decisão do projeto: a faixa "atenção" entre 3,0 e 5,0 (a norma define limites de aprovação, não essa faixa) e usar o critério de prova (ISO 12647-7), o mais próximo do que o programa calcula (desvio entre a cor pedida e a que a condição de impressão reproduz), em vez do critério de tiragem (ISO 12647-2), que compara impresso medido com os valores-alvo. A norma avalia material impresso e medido com espectrofotômetro; o programa é uma simulação numérica, e o laudo traz ΔE\*ab e ΔH\*ab apenas como informação. Um artigo de Habekost (2013, *International Circular of Graphic Education and Research*, nº 6) também apresenta limites em ΔE\*00, mas são propostas do autor, não de norma. O piso de erro do round-trip (patches de caracterização, intent relativo) continua abaixo do corte de 5,0 em praticamente todos os casos dentro do gamut. Perda de gamut real é bem maior (sRGB verde puro 18 ΔE00, azul 14 a 16, ciano 14, vermelho 5 a 6, laranja 2,6 a 2,7; cinza 50 % 0,1).
+
+Referências: FOGRA; BVDM. *MediaStandard Print 2018*. Disponível em: bvdm-online.de (arquivo MediaStandard_Print_2018.pdf). TYPOS. *Production Parameters and their Tolerances*, 1 mar. 2019. Disponível em: typos.cz. ISO 12647-2:2013 e ISO 12647-7:2016 (texto completo não consultado).
 
 **D3. Licença do projeto (L14).** **AGPL-3.0** para o projeto inteiro (arquivo `LICENSE`), por causa do MuPDF. As demais dependências principais (lcms-wasm, MIT; pdf.js, Apache-2.0) foram conferidas só de forma geral quanto à compatibilidade. O autor não é jurista; para uso comercial seria preciso licença comercial da Artifex ou trocar o MuPDF. Os perfis `.icc` da ECI continuam fora do repositório e não são cobertos por esta licença.
 
@@ -446,7 +456,7 @@ Com o corte de reprovação em 4,0, até 0,25 % dos patches dentro do gamut seri
 
 | Arquivo | Papel |
 |---|---|
-| `src/core/verdict.ts` | `classifyDeltaE` (aprovado ≤ 3,0; atenção ≤ 4,0; reprovado acima, limites inclusivos) e `worstVerdict` |
+| `src/core/verdict.ts` | `classifyDeltaE` (aprovado ≤ 3,0; atenção ≤ 5,0; reprovado acima, limites inclusivos), `MEAN_DELTA_E_MAX` (2,5) e `worstVerdict` |
 | `src/lib/report/flowA.ts` | `evaluateFlowA(analysis, profile)`: para cada cor dominante, faz Lab de origem → CMYK (B2A) → Lab (A2B), calcula ΔE00 e classifica; o veredito geral é o pior entre as cores |
 | `src/lib/icc/colorEngine.ts` | nova opção `blackPointCompensation` em `loadProfile` (padrão desligada) |
 | `src/lib/analysis/*` | o Worker devolve o laudo junto com a análise (`report`), que é `null` sem perfil carregado |
@@ -502,7 +512,7 @@ Entrada: duas versões do **mesmo layout** (PDF ou imagem): a referência (por e
 
 ### 8e.2 Decisões desta fase (confirmadas pelo autor em 17/11/2026)
 
-- **Veredito geral pelo percentil 95**, não pelo pior caso. O pior caso é dominado por regiões de borda, onde poucos pixels de deslocamento entre as versões trocam a cor dominante da região. O pior caso e as cinco piores regiões são informados à parte, junto com a fração de uniformidade da região (baixa = região mista). As faixas de ΔE00 são as de D2 (3,0 e 4,0).
+- **Veredito geral pelo percentil 95**, não pelo pior caso. O pior caso é dominado por regiões de borda, onde poucos pixels de deslocamento entre as versões trocam a cor dominante da região. O pior caso e as cinco piores regiões são informados à parte, junto com a fração de uniformidade da região (baixa = região mista). As faixas de ΔE00 são as de D2 (3,0 e 5,0); uma média acima de 2,5 impede o "aprovado" da página.
 - **Intent padrão: relativo**, não absoluto como a decisão D1 previu para o Fluxo B. A D1 pensava em comparar CMYK com os valores de caracterização da condição de impressão. Para referência de tela contra versão impressa, o intent absoluto faz o branco do papel (L\* 95, b\* −2 a −6) contar como diferença da tela (L\* 100) e eleva o ΔE00 de todo o material. A opção `intent: 'absolute'` continua disponível.
 
 ### 8e.3 Resultados no par de teste (cores-rgb.pdf × par-simulacao-cmyk.pdf)
@@ -582,6 +592,8 @@ Acessibilidade e layout: abas com `role="tablist"`, seletores de arquivo com ró
 
 ---
 
+
+**Interface enxuta (18/11/2026).** A pedido do usuário ("muita informação escrita, pouco intuitivo"), o texto explicativo saiu das telas: sem subtítulos, o resultado em uma frase ("A impressão fica fiel ao arquivo"), o CMYK em destaque e o restante (detalhes, origem do valor, regiões mais afetadas, "Como funciona") em blocos recolhidos que abrem sob demanda. A visão geral ficou com comparador, nota e cores do arquivo; a tabela de amostras só existe na página Amostras. Os cálculos não mudaram.
 
 ## 8g. Simulação de impressão a partir de um arquivo
 

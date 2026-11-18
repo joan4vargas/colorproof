@@ -1,9 +1,20 @@
-// Veredito por faixas de ΔE00 do "Fluxo A" (simulação de conformidade).
+// Veredito por faixas de ΔE00 (simulação de conformidade).
 //
-// Os limites são DECISÃO DE PROJETO (docs/DOCUMENTACAO.md, seção 8c, D2), não
-// tolerâncias da ISO 12647-2: aprovado até 3,0, atenção de 3,0 a 4,0 e
-// reprovado acima de 4,0. Fundamento: o piso de erro do próprio round-trip,
-// medido em patches de caracterização, passa de 4 ΔE00 em no máximo 0,25% dos casos.
+// ORIGEM DOS LIMITES (revisão de 18/11/2026; antes eram 3,0 e 4,0, só decisão de projeto):
+//
+//  - 3,0 (aprovado): ΔE*00 máximo dos sólidos de cores primárias e de cores spot na
+//    ISO 12647-7:2016 (prova contratual), Tabelas 30 e 31 do Fogra MediaStandard Print 2018.
+//  - 5,0 (atenção, depois reprovado): ΔE*00 máximo de TODOS os patches e P95 na mesma
+//    ISO 12647-7:2016 (Tabelas 30 e 31). Na ISO 12647-2:2013, o desvio de sólidos é
+//    normativo em ΔE*ab ≤ 5 (Tabela 20 do MediaStandard Print 2018); os valores em ΔE*00
+//    daquela tabela (K 5; C, M, Y 3,5) são apenas informativos.
+//  - 2,5 (média): ΔE*00 médio de todos os patches (ISO 12647-7:2016, Tabelas 30 e 31),
+//    usado no veredito da simulação junto com o P95.
+//
+// A norma define limites de aprovação; a FAIXA "atenção" entre 3,0 e 5,0 é interpretação
+// do projeto (entre o limite dos sólidos e o limite de todos os patches). A norma avalia
+// impressos medidos com espectrofotômetro: este programa é uma simulação numérica.
+// Referências completas em docs/DOCUMENTACAO.md, seção 8c.
 
 export type Verdict = 'aprovado' | 'atencao' | 'reprovado';
 
@@ -14,7 +25,10 @@ export interface VerdictThresholds {
   attentionMax: number;
 }
 
-export const DEFAULT_THRESHOLDS: VerdictThresholds = { approvedMax: 3.0, attentionMax: 4.0 };
+export const DEFAULT_THRESHOLDS: VerdictThresholds = { approvedMax: 3.0, attentionMax: 5.0 };
+
+/** ΔE*00 médio máximo (ISO 12647-7:2016, Tabelas 30 e 31): acima disso a simulação não passa de "atenção". */
+export const MEAN_DELTA_E_MAX = 2.5;
 
 export function classifyDeltaE(
   deltaE: number,

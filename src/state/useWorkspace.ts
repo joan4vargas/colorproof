@@ -40,6 +40,8 @@ export interface Workspace {
   cancel: () => void;
   /** Cores spot do PDF aberto. */
   listSpots: () => Promise<SpotColor[]>;
+  /** Cores spot do PDF escolhido (lidas em segundo plano); null enquanto não se sabe. */
+  fileSpots: SpotColor[] | null;
   /** Melhor CMYK de cada cor spot, pelo perfil carregado. */
   matchSpots: (items: SpotInput[], intent: RenderingIntent) => Promise<{ matches: SpotMatch[]; profileDescription: string }>;
 }
@@ -47,6 +49,8 @@ export interface Workspace {
 export function useWorkspace(): Workspace {
   const clientRef = useRef<AnalysisClient | null>(null);
   const fileRef = useRef<File | null>(null);
+  const spotsFor = useRef<File | null>(null);
+  const [fileSpots, setFileSpots] = useState<SpotColor[] | null>(null);
   const runId = useRef(0);
 
   const [file, setFile] = useState<File | null>(null);
@@ -114,6 +118,7 @@ export function useWorkspace(): Workspace {
     (f: File) => {
       fileRef.current = f;
       setFile(f);
+      setFileSpots(null);
       void run(f);
     },
     [run],
@@ -148,5 +153,15 @@ export function useWorkspace(): Workspace {
 
   const matchSpots = useCallback((items: SpotInput[], intent: RenderingIntent) => getClient().matchSpots(items, intent), [getClient]);
 
-  return { file, profileName, profileError, analysis, simulation, busy, stage, error, simulationError, pickFile, pickProfile, cancel, listSpots, matchSpots };
+  // Depois que a análise termina, descobre em segundo plano se o PDF usa cores spot (Pantone etc.).
+  useEffect(() => {
+    if (!file || busy || spotsFor.current === file) return;
+    if (!isPdf(file)) return;
+    spotsFor.current = file;
+    listSpots()
+      .then((s) => spotsFor.current === file && setFileSpots(s))
+      .catch(() => spotsFor.current === file && setFileSpots([]));
+  }, [file, busy, listSpots]);
+
+  return { file, fileSpots, profileName, profileError, analysis, simulation, busy, stage, error, simulationError, pickFile, pickProfile, cancel, listSpots, matchSpots };
 }

@@ -118,6 +118,16 @@ export function Kpi(props: { icon: keyof typeof PATHS; tone: Tone; value: ReactN
 
 const VERDICT_LABEL: Record<Verdict, string> = { aprovado: 'Aprovado', atencao: 'Atenção', reprovado: 'Reprovado' };
 
+/** Texto de apoio escondido: abre só quando a pessoa quer saber mais. */
+export function Help({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <details className="help">
+      <summary>{title}</summary>
+      <div className="help-body">{children}</div>
+    </details>
+  );
+}
+
 export function Pill({ verdict, big }: { verdict: Verdict; big?: boolean }) {
   return <span className={`pill ${verdict}${big ? ' big' : ''}`}>{VERDICT_LABEL[verdict]}</span>;
 }

@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import type { SpotColor } from '../lib/pdf/spotColors';
 import { Status } from '../components/common';
 import { Dropzone } from '../components/ui';
 import { STAGE_LABEL, type Workspace } from '../state/useWorkspace';
@@ -27,7 +28,7 @@ export function Progress({ ws }: { ws: Workspace }) {
 export function EmptyFile({ ws, children }: { ws: Workspace; children?: ReactNode }) {
   return (
     <div className="stack">
-      <Dropzone title="Solte um PDF ou imagem aqui" hint="ou escolha no seu computador; o arquivo não sai dele" accept={ACCEPT} onFile={ws.pickFile} />
+      <Dropzone title="Solte o arquivo aqui" hint="PDF ou imagem" accept={ACCEPT} onFile={ws.pickFile} />
       {children}
       <Progress ws={ws} />
     </div>
@@ -35,5 +36,22 @@ export function EmptyFile({ ws, children }: { ws: Workspace; children?: ReactNod
 }
 
 export function NeedProfile() {
-  return <Status kind="info">Escolha a condição de impressão (perfil ICC CMYK de saída, como ISO Coated v2 ou PSO Coated v3, da ECI) no alto da página. Ele é lido só no seu computador.</Status>;
+  return <Status kind="info">Escolha o perfil de impressão no alto da página (ex.: ISO Coated v2).</Status>;
+}
+
+/** Este PDF usa cores spot (Pantone): diz quais são e leva ao CMYK de cada uma. */
+export function SpotBanner({ spots, onOpen }: { spots: SpotColor[] | null; onOpen: () => void }) {
+  if (!spots || spots.length === 0) return null;
+  return (
+    <div className="status info spot-banner">
+      <div>
+        <strong>Este PDF usa cores spot:</strong> {spots.map((s) => s.name).join(', ')}.
+        <br />
+        <span className="muted small">Abaixo elas aparecem pelo CMYK substituto que o arquivo guarda, não pelo Pantone.</span>
+      </div>
+      <button type="button" className="btn primary" onClick={onOpen}>
+        Ver CMYK de cada cor
+      </button>
+    </div>
+  );
 }

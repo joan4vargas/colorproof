@@ -15,12 +15,12 @@ import { useWorkspace } from './state/useWorkspace';
 
 type Tab = 'geral' | 'simulacao' | 'amostras' | 'spot' | 'relatorio';
 
-const NAV: Array<{ id: Tab; label: string; icon: 'grid' | 'compare' | 'palette' | 'file' | 'layers'; title: string; subtitle: string }> = [
-  { id: 'geral', label: 'Visão geral', icon: 'grid', title: 'Visão geral', subtitle: 'O arquivo, a simulação de impressão e o laudo numa tela só' },
-  { id: 'simulacao', label: 'Simulação', icon: 'compare', title: 'Simulação de impressão', subtitle: 'Como o arquivo sairia impresso, gerado a partir de um único arquivo' },
-  { id: 'amostras', label: 'Amostras', icon: 'palette', title: 'Amostras', subtitle: 'As cores dominantes, no arquivo e impressas, com a referência CMYK' },
-  { id: 'spot', label: 'Cores spot', icon: 'layers', title: 'Cores spot (Pantone)', subtitle: 'O CMYK que mais se aproxima de uma cor Pantone, na condição de impressão escolhida' },
-  { id: 'relatorio', label: 'Relatório', icon: 'file', title: 'Relatório', subtitle: 'Laudos para imprimir ou baixar e o que o método mede' },
+const NAV: Array<{ id: Tab; label: string; icon: 'grid' | 'compare' | 'palette' | 'file' | 'layers'; title: string }> = [
+  { id: 'geral', label: 'Visão geral', icon: 'grid', title: 'Visão geral' },
+  { id: 'simulacao', label: 'Simulação', icon: 'compare', title: 'Simulação' },
+  { id: 'amostras', label: 'Amostras', icon: 'palette', title: 'Amostras' },
+  { id: 'spot', label: 'Cores spot', icon: 'layers', title: 'Cores spot (Pantone)' },
+  { id: 'relatorio', label: 'Relatório', icon: 'file', title: 'Relatório' },
 ];
 
 function Picker(props: { label: string; value: string | null; empty: string; action: string; accept: string; aria: string; onFile: (f: File) => void }) {
@@ -58,6 +58,10 @@ function App() {
   const spots = useSpots(ws);
   const [tab, setTab] = useState<Tab>('geral');
   const current = NAV.find((n) => n.id === tab)!;
+  const openSpots = () => {
+    setTab('spot');
+    void spots.readAndCalculate();
+  };
 
   return (
     <div className="shell">
@@ -77,7 +81,7 @@ function App() {
           ))}
         </nav>
         <p className="side-note">
-          <Icon name="shield" size={16} /> Tudo roda no seu navegador. Nenhum arquivo é enviado.
+          <Icon name="shield" size={16} /> Seus arquivos não saem do computador.
         </p>
       </aside>
 
@@ -85,23 +89,22 @@ function App() {
         <header className="topbar">
           <div className="titles">
             <h1>{current.title}</h1>
-            <p className="muted">{current.subtitle}</p>
           </div>
           <div className="pickers">
             <Picker
-              label="Arquivo de referência"
+              label="1. Arquivo"
               value={ws.file?.name ?? null}
-              empty="Nenhum arquivo"
-              action={ws.file ? 'Trocar arquivo' : 'Escolher arquivo'}
+              empty="Nenhum"
+              action={ws.file ? 'Trocar' : 'Escolher'}
               accept=".pdf,application/pdf,image/*"
               aria="Arquivo PDF ou imagem"
               onFile={ws.pickFile}
             />
             <Picker
-              label="Condição de impressão"
+              label="2. Perfil de impressão"
               value={ws.profileName}
-              empty="Nenhum perfil"
-              action={ws.profileName ? 'Trocar perfil' : 'Escolher perfil ICC'}
+              empty="Nenhum"
+              action={ws.profileName ? 'Trocar' : 'Escolher'}
               accept=".icc,.icm"
               aria="Perfil ICC CMYK"
               onFile={(f) => void ws.pickProfile(f)}
@@ -110,9 +113,9 @@ function App() {
         </header>
         {ws.profileError && <Status kind="error">Erro: {ws.profileError}</Status>}
 
-        {tab === 'geral' && <OverviewPage ws={ws} />}
-        {tab === 'simulacao' && <SimulationPage ws={ws} />}
-        {tab === 'amostras' && <SamplesPage ws={ws} />}
+        {tab === 'geral' && <OverviewPage ws={ws} openSpots={openSpots} />}
+        {tab === 'simulacao' && <SimulationPage ws={ws} openSpots={openSpots} />}
+        {tab === 'amostras' && <SamplesPage ws={ws} openSpots={openSpots} />}
         {tab === 'spot' && <SpotsPage ws={ws} spots={spots} />}
         {tab === 'relatorio' && <ReportPage ws={ws} />}
       </main>

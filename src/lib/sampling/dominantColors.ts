@@ -14,6 +14,7 @@
 
 import { rgbToLabD50 } from '../../core/colorimetry';
 import type { Lab, RGB } from '../../types/color';
+import { assignToInks, flatInks } from './flatArt';
 import { kmeansLabWeighted, mostFrequentPerCluster, type WeightedLab } from './kmeans';
 
 export interface DominantColor {
@@ -36,6 +37,8 @@ export interface ColorExtraction {
   paperPixels: number;
   /** Cores RGB distintas encontradas entre os pixels de tinta. */
   distinctColors: number;
+  /** true em arte chapada: as cores são tintas chapadas exatas e as misturas de borda foram descartadas (ver `flatArt.ts`). */
+  flatArt?: boolean;
 }
 
 export interface ExtractionOptions {
@@ -95,6 +98,21 @@ export function extractDominantColors(
   }
 
   const inkPixels = totalPixels - paperPixels;
+
+  const counts = points.map((p) => p.count);
+  const bytes = new Uint8Array(points.length * 4);
+  rgbOf.forEach((c, i) => bytes.set([c.r, c.g, c.b, 0], i * 4));
+  const flat = flatInks(bytes, counts, inkPixels, new Uint8Array([255, 255, 255, 0]));
+  if (flat) {
+    const weight = assignToInks(bytes, counts, flat, new Uint8Array([255, 255, 255, 0]));
+    const assigned = weight.reduce((a, b) => a + b, 0) || 1;
+    const colors = flat
+      .map((idx, f): DominantColor => ({ lab: points[idx].lab, rgb: rgbOf[idx], inkShare: weight[f] / assigned, pixelShare: weight[f] / totalPixels, spread: 0 }))
+      .sort((x, y) => y.inkShare - x.inkShare)
+      .slice(0, k);
+    return { colors, totalPixels, paperPixels, distinctColors: points.length, flatArt: true };
+  }
+
   const clusters = kmeansLabWeighted(points, k);
 
   const representative = mostFrequentPerCluster(points, clusters);

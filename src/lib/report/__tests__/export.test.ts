@@ -88,7 +88,7 @@ describe.skipIf(!hasProfile)('exportação com ISO Coated v2', () => {
     expect(lines).toHaveLength(7);
     expect(lines[0].split(';')[0]).toBe('arquivo');
     expect(lines[1]).toMatch(/;\d+,\d{4};/); // decimal com vírgula
-    expect(lines[1].split(';')).toHaveLength(21);
+    expect(lines[1].split(';')).toHaveLength(26);
     expect(lines[0]).toContain('sugestao_sRGB');
   });
 
@@ -123,5 +123,13 @@ describe.skipIf(!hasProfile)('exportação com ISO Coated v2', () => {
     const html = flowBToHtml({ referenceName: 'a.pdf', simulationName: 'a.pdf', profileDescription: null, outcome }, META);
     expect(html).toContain('não usado');
     expect(html).toContain('Aprovado');
+  });
+
+  it('laudos citam a origem dos limites e trazem ΔE*ab e ΔH*ab', () => {
+    const html = flowAToHtml({ fileName: 'arte.pdf', analysis: analysisRgb, report: analysisRgb.report! }, META);
+    expect(html).toContain('ISO 12647-7:2016');
+    expect(html).toContain('MediaStandard Print 2018');
+    expect(html).toContain('ΔE*ab');
+    expect(html).toContain('ΔH*ab');
   });
 });

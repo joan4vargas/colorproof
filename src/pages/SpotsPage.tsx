@@ -1,12 +1,11 @@
 // Cores spot (Pantone): digitar ou ler do PDF o valor de referência de cada cor
 // e receber o CMYK que mais se aproxima dela na condição de impressão.
 
-import { fmtLab, inkChanges, num2 } from '../components/format';
+import { fmtLab, num2 } from '../components/format';
 import { rgbCss } from '../components/samples';
-import { Card, DeltaBar, Icon, Inks, Pill } from '../components/ui';
+import { Card, DeltaBar, Help, Icon, Inks, Pill } from '../components/ui';
 import { labD50ToRgbClipped } from '../core/colorimetry';
 import { DEFAULT_THRESHOLDS } from '../core/verdict';
-import { ALT_MIN_STEP } from '../lib/spot/spotMatch';
 import { downloadText, printHtml, reportFileName } from '../lib/browser/download';
 import { spotToCsv, spotToHtml, type SpotExport } from '../lib/report/export';
 import { isPdf } from '../components/format';
@@ -91,13 +90,14 @@ export default function SpotsPage({ ws, spots }: { ws: Workspace; spots: Spots }
 
   return (
     <div className="stack">
-      {!ws.profileName && <Status kind="info">Escolha a condição de impressão (perfil ICC CMYK) no alto da página para calcular o CMYK.</Status>}
+      {!ws.profileName && <Status kind="info">Escolha o perfil de impressão no alto da página.</Status>}
 
-      <Card title="Valores de referência" subtitle="Informe o valor de cada cor e veja o CMYK que mais se aproxima dela">
-        <p className="muted small">
-          O app não traz a biblioteca Pantone (ela é proprietária). O valor de referência pode vir do PDF (quando o arquivo declara o Lab do spot), do Pantone Connect ou do Color Bridge, ou de uma medição do
-          impresso com espectrofotômetro, que é a referência mais fiel. Informe em Lab (D50) quando puder: o hexadecimal é uma conversão para a tela e perde fidelidade.
-        </p>
+      <Card title="Suas cores">
+        <Help title="De onde vem o valor da cor?">
+          <p className="small">
+            O app não traz a biblioteca Pantone. Use o Lab do PDF (botão “Ler do PDF”), do Pantone Connect ou de uma medição com espectrofotômetro. O hexadecimal é só aproximado.
+          </p>
+        </Help>
         <div className="spot-list">
           {rows.map((row) => (
             <RowEditor key={row.id} row={row} update={update} remove={remove} />
@@ -105,11 +105,16 @@ export default function SpotsPage({ ws, spots }: { ws: Workspace; spots: Spots }
         </div>
         <div className="actions">
           <button type="button" className="btn" onClick={add}>
-            Adicionar cor
+            + Cor
           </button>
-          <button type="button" className="btn" onClick={() => void readFromPdf()} disabled={!canRead || busy} title={canRead ? undefined : 'Envie um PDF no alto da página para ler os spots dele'}>
-            <Icon name="upload" size={18} /> Ler spots do PDF
+          <button type="button" className="btn" onClick={() => void readFromPdf()} disabled={!canRead || busy} title={canRead ? undefined : 'Escolha um PDF no alto da página'}>
+            <Icon name="upload" size={18} /> Ler do PDF
           </button>
+          <button type="button" className="btn primary" onClick={() => void calculate()} disabled={busy || !ws.profileName}>
+            Calcular
+          </button>
+        </div>
+        <Help title="Opções">
           <div className="seg" role="group" aria-label="Referência do valor">
             <button type="button" aria-pressed={intent === 'relative'} onClick={() => setIntent('relative')} title="O branco do papel vira o branco da referência. Padrão.">
               Relativo ao papel
@@ -118,17 +123,14 @@ export default function SpotsPage({ ws, spots }: { ws: Workspace; spots: Spots }
               Absoluto
             </button>
           </div>
-          <button type="button" className="btn primary" onClick={() => void calculate()} disabled={busy || !ws.profileName}>
-            Calcular CMYK
-          </button>
-        </div>
+        </Help>
         {info && <p className="muted small">{info}</p>}
         {error && <Status kind="error">Erro: {error}</Status>}
       </Card>
 
       {result && exportData && (
         <>
-          <Card title="CMYK recomendado" subtitle={`Perfil ${result.profileDescription} · ${result.intent === 'relative' ? 'colorimétrico relativo' : 'colorimétrico absoluto'}`}>
+          <Card title="CMYK para imprimir">
             <div className="swatches">
               {result.matches.map((m, i) => (
                 <article key={i} className="swatch-card">
@@ -144,48 +146,40 @@ export default function SpotsPage({ ws, spots }: { ws: Workspace; spots: Spots }
                     <strong>{m.name}</strong>
                     <Pill verdict={m.verdict} />
                   </div>
-                  <p className="muted small">
-                    Lab {fmtLab(m.labTarget)} · {result.rows[i]?.origin}
-                  </p>
-                  <p className="small label-line">CMYK a usar</p>
                   <p className="cmyk-big">
                     C {m.cmyk.c} · M {m.cmyk.m} · Y {m.cmyk.y} · K {m.cmyk.k}
                   </p>
                   <Inks cmyk={m.cmyk} />
-                  <p className="muted small">Tinta total {m.totalInk}%</p>
-                  <p className="small label-line">ΔE00 contra a referência</p>
-                  <DeltaBar value={m.deltaE} verdict={m.verdict} thresholds={DEFAULT_THRESHOLDS} />
-                  {!m.reproducible && <p className="muted small">Fora do alcance do CMYK nesta condição de impressão: este é o CMYK mais próximo possível, e o ΔE00 mostra o que se perde. Cores metálicas e fluorescentes também não saem em CMYK.</p>}
-                  {m.improved && <p className="muted small">A busca melhorou o ΔE00 de {num2(m.deltaEB2A)} (só pela tabela do perfil, CMYK {m.cmykB2A.c}/{m.cmykB2A.m}/{m.cmykB2A.y}/{m.cmykB2A.k}) para {num2(m.deltaE)}{inkChanges({ c: m.cmyk.c - m.cmykB2A.c, m: m.cmyk.m - m.cmykB2A.m, y: m.cmyk.y - m.cmykB2A.y, k: m.cmyk.k - m.cmykB2A.k }) ? ` (${inkChanges({ c: m.cmyk.c - m.cmykB2A.c, m: m.cmyk.m - m.cmykB2A.m, y: m.cmyk.y - m.cmykB2A.y, k: m.cmyk.k - m.cmykB2A.k })})` : ''}.</p>}
+                  {!m.reproducible && <p className="muted small">Fora do alcance do CMYK: é a melhor aproximação.</p>}
                   <div className="spot-alt">
                     <div className="spot-alt-head">
                       <span className="swatch-mini" style={{ background: rgbCss(labD50ToRgbClipped(m.alternative.labPrinted)) }} aria-hidden="true" />
-                      <p className="small label-line">Segunda opção (variação próxima)</p>
+                      <p className="small label-line">Outra opção para testar</p>
                     </div>
                     <p className="cmyk-big alt">
                       C {m.alternative.cmyk.c} · M {m.alternative.cmyk.m} · Y {m.alternative.cmyk.y} · K {m.alternative.cmyk.k}
                     </p>
-                    <p className="muted small">
-                      ΔE00 {num2(m.alternative.deltaE)} (+{num2(m.alternative.deltaEExtra)} sobre a primeira) · tinta total {m.alternative.totalInk}%
-                    </p>
-                    <p className="muted small">
-                      É o segundo CMYK mais próximo, com pelo menos {ALT_MIN_STEP} pontos de diferença em algum canal. Serve para imprimir as duas opções ao lado do Pantone e escolher a olho; pelo cálculo, a primeira é a melhor.
-                    </p>
                   </div>
+                  <Help title="Detalhes">
+                    <p className="small">Lab de referência {fmtLab(m.labTarget)} · {result.rows[i]?.origin}</p>
+                    <p className="small">Diferença (ΔE00): {num2(m.deltaE)} na primeira opção, {num2(m.alternative.deltaE)} na outra. Quanto menor, mais parecido. Tinta total: {m.totalInk}%.</p>
+                    <DeltaBar value={m.deltaE} verdict={m.verdict} thresholds={DEFAULT_THRESHOLDS} />
+                    <p className="muted small">Imprima as duas opções ao lado do Pantone e escolha a olho; pelo cálculo, a primeira é a melhor. Perfil {result.profileDescription}.</p>
+                  </Help>
                 </article>
               ))}
             </div>
           </Card>
-          <Card title="Exportar" subtitle="Tabela de equivalência para enviar ao cliente ou à gráfica">
+          <Card title="Salvar">
             <div className="actions">
               <button type="button" className="btn primary" onClick={() => printHtml(spotToHtml(exportData, meta()))}>
-                <Icon name="print" size={18} /> Imprimir ou salvar em PDF
+                <Icon name="print" size={18} /> Imprimir / PDF
               </button>
               <button type="button" className="btn" onClick={() => downloadText(reportFileName('cores-spot', 'html'), spotToHtml(exportData, meta()), 'text/html')}>
-                <Icon name="download" size={18} /> Laudo (HTML)
+                <Icon name="download" size={18} /> HTML
               </button>
               <button type="button" className="btn" onClick={() => downloadText(reportFileName('cores-spot', 'csv'), spotToCsv(exportData), 'text/csv')}>
-                <Icon name="table" size={18} /> Tabela (CSV)
+                <Icon name="table" size={18} /> Excel (CSV)
               </button>
             </div>
           </Card>

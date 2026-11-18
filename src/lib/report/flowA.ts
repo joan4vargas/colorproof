@@ -16,7 +16,7 @@
 //
 // Isto é uma SIMULAÇÃO numérica (L4): não substitui medição com espectrofotômetro.
 
-import { deltaE2000, labD50ToRgbClipped, rgbToLabD50 } from '../../core/colorimetry';
+import { deltaE2000, deltaEab, deltaHab, labD50ToRgbClipped, rgbToLabD50 } from '../../core/colorimetry';
 import {
   DEFAULT_THRESHOLDS,
   classifyDeltaE,
@@ -47,6 +47,10 @@ export interface ColorFinding {
   cmykReproduced: Cmyk;
   /** ΔE00 entre `labSource` e `labRoundTrip`: base do veredito. */
   deltaE: number;
+  /** ΔE*ab (CIE 1976), a métrica normativa da ISO 12647-2: informativa, não entra no veredito. */
+  deltaEab: number;
+  /** ΔH*ab (diferença de matiz, CIELAB). */
+  deltaH: number;
   verdict: Verdict;
   /** Só caminho CMYK: ΔE00 entre a cor impressa prevista e o que um monitor sRGB mostra. */
   screenDeltaE?: number;
@@ -106,6 +110,8 @@ export function evaluateFlowA(
       labRoundTrip,
       cmykReproduced: profile.labToCmyk(labSource, intent),
       deltaE,
+      deltaEab: deltaEab(labSource, labRoundTrip),
+      deltaH: deltaHab(labSource, labRoundTrip),
       verdict: classifyDeltaE(deltaE, thresholds),
       pixelShare,
       spread,
@@ -130,7 +136,7 @@ export function evaluateFlowA(
   } else {
     if (!analysis.cmyk) throw new Error('evaluateFlowA: análise CMYK sem cores.');
     for (const c of analysis.cmyk.colors) {
-      evaluate({ kind: 'cmyk', cmyk: c.cmyk }, c.lab, c.pixelShare, c.spread);
+      evaluate({ kind: 'cmyk', cmyk: c.cmyk }, c.labExact ?? c.lab, c.pixelShare, c.spread);
     }
   }
 

@@ -33,7 +33,8 @@ export interface SpotResult {
   intent: RenderingIntent;
 }
 
-const num = (s: string) => Number(s.trim().replace(',', '.'));
+/** Campo vazio não é zero: devolve NaN, e a linha é recusada com um aviso. */
+const num = (s: string) => (s.trim() === '' ? NaN : Number(s.trim().replace(',', '.')));
 const inRange = (v: number, lo: number, hi: number) => Number.isFinite(v) && v >= lo && v <= hi;
 
 /** Converte a linha digitada num valor de referência, ou explica o que está errado. */
@@ -42,18 +43,18 @@ export function rowToInput(row: SpotRow): { input: SpotInput } | { error: string
   if (row.mode === 'lab') {
     const [l, a, b] = [num(row.l), num(row.a), num(row.b)];
     if (!inRange(l, 0, 100) || !inRange(a, -160, 160) || !inRange(b, -160, 160)) {
-      return { error: `${name}: Lab inválido. L* vai de 0 a 100; a* e b*, de −160 a 160.` };
+      return { error: `${name}: preencha L*, a* e b* (L* de 0 a 100; a* e b* de −160 a 160).` };
     }
     return { input: { name, ref: { kind: 'lab', lab: { l, a, b } } } };
   }
   if (row.mode === 'hex') {
     const m = /^#?([0-9a-f]{6})$/i.exec(row.hex.trim());
-    if (!m) return { error: `${name}: hexadecimal inválido. Use 6 dígitos, como #E4002B.` };
+    if (!m) return { error: `${name}: preencha o hexadecimal com 6 dígitos, como #E4002B.` };
     const v = parseInt(m[1], 16);
     return { input: { name, ref: { kind: 'srgb', rgb: { r: (v >> 16) & 255, g: (v >> 8) & 255, b: v & 255 } } } };
   }
   const [c, m, y, k] = [num(row.c), num(row.m), num(row.y), num(row.k)];
-  if (![c, m, y, k].every((v) => inRange(v, 0, 100))) return { error: `${name}: CMYK inválido. Cada tinta vai de 0 a 100.` };
+  if (![c, m, y, k].every((v) => inRange(v, 0, 100))) return { error: `${name}: preencha C, M, Y e K (de 0 a 100).` };
   return { input: { name, ref: { kind: 'cmyk', cmyk: { c, m, y, k } } } };
 }
 
@@ -88,7 +89,8 @@ export function useSpots(ws: Workspace) {
   const add = useCallback(() => setRows((rs) => [...rs, blankRow()]), []);
   const remove = useCallback((id: number) => setRows((rs) => (rs.length > 1 ? rs.filter((r) => r.id !== id) : [blankRow()])), []);
 
-  const readFromPdf = useCallback(async () => {
+  /** Lê os spots do PDF e junta às linhas; devolve as linhas novas (ou null se nada mudou). */
+  const readFromPdf = useCallback(async (): Promise<SpotRow[] | null> => {
     setError(null);
     setInfo(null);
     setBusy(true);
@@ -96,25 +98,26 @@ export function useSpots(ws: Workspace) {
       const spots = await ws.listSpots();
       if (spots.length === 0) {
         setInfo('Este PDF não usa cores spot (Pantone etc.).');
-        return;
+        return null;
       }
-      setRows((rs) => {
-        const filled = rs.filter((r) => r.name.trim() || r.l || r.hex || r.c);
-        const known = new Set(filled.map((r) => r.name.trim()));
-        return [...filled, ...spots.filter((s) => !known.has(s.name)).map(rowFromSpot)];
-      });
+      const filled = rows.filter((r) => r.name.trim() || r.l || r.hex || r.c);
+      const known = new Set(filled.map((r) => r.name.trim()));
+      const next = [...filled, ...spots.filter((s) => !known.has(s.name)).map(rowFromSpot)];
+      setRows(next);
       setInfo(`${spots.length} cor(es) spot encontrada(s) no PDF.`);
+      return next;
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+      return null;
     } finally {
       setBusy(false);
     }
-  }, [ws]);
+  }, [ws, rows]);
 
-  const calculate = useCallback(async () => {
+  const calculate = useCallback(async (rowsOverride?: SpotRow[]) => {
     setError(null);
     setInfo(null);
-    const used = rows.filter((r) => r.name.trim() || r.l || r.hex || r.c || r.m || r.y || r.k);
+    const used = (rowsOverride ?? rows).filter((r) => r.name.trim() || r.l || r.hex || r.c || r.m || r.y || r.k);
     if (used.length === 0) {
       setError('Informe ao menos uma cor.');
       return;
@@ -140,5 +143,11 @@ export function useSpots(ws: Workspace) {
     }
   }, [rows, intent, ws]);
 
-  return { rows, intent, setIntent, result, busy, error, info, update, add, remove, readFromPdf, calculate };
+  /** Atalho do banner da visão geral: lê os spots do PDF e já calcula o CMYK de cada um. */
+  const readAndCalculate = useCallback(async () => {
+    const next = await readFromPdf();
+    if (next) await calculate(next);
+  }, [readFromPdf, calculate]);
+
+  return { rows, intent, setIntent, result, busy, error, info, update, add, remove, readFromPdf, calculate, readAndCalculate };
 }

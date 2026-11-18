@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { deltaE2000, rgbToLabD50, xyzToLab, adaptBradford, rgbToXyzD65, labD50ToRgbClipped } from '../colorimetry';
+import { deltaE2000, deltaEab, deltaHab, rgbToLabD50, xyzToLab, adaptBradford, rgbToXyzD65, labD50ToRgbClipped } from '../colorimetry';
 import type { Lab, RGB, XYZ } from '../../types/color';
 
 // =========================================================================
@@ -213,5 +213,16 @@ describe('labD50ToRgbClipped (só para exibição)', () => {
       expect(v).toBeGreaterThanOrEqual(0);
       expect(v).toBeLessThanOrEqual(255);
     }
+  });
+});
+
+describe('ΔE*ab e ΔH*ab', () => {
+  it('ΔE*ab é a distância euclidiana em Lab', () => {
+    expect(deltaEab({ l: 50, a: 0, b: 0 }, { l: 53, a: 4, b: 0 })).toBeCloseTo(5, 10);
+  });
+  it('ΔH*ab: só a mudança de matiz conta (mesmo L e croma → ΔH = ΔE; só L → 0)', () => {
+    expect(deltaHab({ l: 50, a: 10, b: 0 }, { l: 50, a: 0, b: 10 })).toBeCloseTo(Math.hypot(10, 10), 6);
+    expect(deltaHab({ l: 50, a: 10, b: 0 }, { l: 60, a: 10, b: 0 })).toBeCloseTo(0, 6);
+    expect(deltaHab({ l: 50, a: 10, b: 0 }, { l: 50, a: 20, b: 0 })).toBeCloseTo(0, 6);
   });
 });

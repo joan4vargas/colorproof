@@ -137,6 +137,19 @@ export function rgbToLabD50(rgb: RGB): Lab {
 const deg2rad = (deg: number) => (deg * Math.PI) / 180;
 const rad2deg = (rad: number) => (rad * 180) / Math.PI;
 
+/** ΔE*ab (CIE 1976): distância euclidiana em CIELAB. É a métrica normativa da ISO 12647-2. */
+export function deltaEab(lab1: Lab, lab2: Lab): number {
+  return Math.hypot(lab1.l - lab2.l, lab1.a - lab2.a, lab1.b - lab2.b);
+}
+
+/** ΔH*ab (diferença de matiz, CIELAB), sempre positivo. */
+export function deltaHab(lab1: Lab, lab2: Lab): number {
+  const dC = Math.hypot(lab2.a, lab2.b) - Math.hypot(lab1.a, lab1.b);
+  const dE2 = (lab1.l - lab2.l) ** 2 + (lab1.a - lab2.a) ** 2 + (lab1.b - lab2.b) ** 2;
+  const dL2 = (lab1.l - lab2.l) ** 2;
+  return Math.sqrt(Math.max(0, dE2 - dL2 - dC * dC));
+}
+
 export function deltaE2000(lab1: Lab, lab2: Lab): number {
   const { l: L1, a: a1, b: b1 } = lab1;
   const { l: L2, a: a2, b: b2 } = lab2;

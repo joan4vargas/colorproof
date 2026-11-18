@@ -33,12 +33,12 @@ export default function AboutPanel() {
         </Card>
         <Card title="Como ler o veredito">
           <p>
-            Aprovado até ΔE00 {t.approvedMax.toFixed(1)}. Atenção até {t.attentionMax.toFixed(1)}. Reprovado acima. Esses
-            limites são uma decisão de projeto, apoiada no erro do próprio método (ida e volta pelo perfil), e não valores da
-            norma ISO 12647.
+            Aprovado até ΔE00 {t.approvedMax.toFixed(1)}: é o limite dos sólidos e das cores spot na ISO 12647-7:2016. Atenção até{' '}
+            {t.attentionMax.toFixed(1)}: é o máximo de qualquer patch nessa norma; a ISO 12647-2:2013 usa ΔE*ab ≤ 5 nos sólidos. A
+            faixa de atenção entre os dois é interpretação do projeto. Valores conferidos no Fogra MediaStandard Print 2018.
           </p>
           <p>
-            Na simulação, o resultado geral vem do percentil 95 das regiões. O pior caso aparece à parte, porque bordas entre
+            Na simulação, o resultado geral vem do percentil 95 das regiões, e uma média acima de 2,5 impede o "aprovado" (ISO 12647-7:2016). O pior caso aparece à parte, porque bordas entre
             cores pesam muito num deslocamento de poucos pixels.
           </p>
           <p>Intent: colorimétrico relativo, sem compensação de ponto preto. O preto impresso é mais claro que o da tela, e a compensação esconderia essa perda.</p>
@@ -48,7 +48,7 @@ export default function AboutPanel() {
         <ul className="plain">
           <li>
             <strong>Não é laudo ISO 12647.</strong> A norma avalia material impresso, medido com espectrofotômetro. Aqui a
-            verificação é numérica, feita sobre o arquivo e o perfil.
+            verificação é numérica, feita sobre o arquivo e o perfil; os limites são os da norma, mas aplicados a uma simulação.
           </li>
           <li>Elementos pequenos, texto fino, transparências e overprint podem não ser representados com fidelidade.</li>
           <li>A simulação mostra só a primeira página. Num PDF já em CMYK ela mostra como o perfil reproduz esses valores, sem comparação com RGB.</li>

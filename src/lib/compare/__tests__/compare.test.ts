@@ -117,6 +117,17 @@ describe('comparePage / compareGrids', () => {
     expect(p.worst[0].deltaE).toBeGreaterThan(20);
   });
 
+  it('média acima de 2,5 impede o "aprovado" mesmo com p95 dentro de 3,0 (ISO 12647-7:2016)', () => {
+    const grid = (l: number): LabGrid => ({ grid: 2, aspect: 1, cells: Array.from({ length: 4 }, () => ({ lab: { l, a: 0, b: 0 }, paper: false, share: 1 })) });
+    // diferença uniforme de ΔL* = 2,8: ΔE00 ≈ 2,8 em toda região (p95 ≤ 3,0, média > 2,5)
+    const p = comparePage(1, grid(50), grid(52.8));
+    expect(p.p95DeltaE).toBeLessThanOrEqual(3);
+    expect(p.meanDeltaE).toBeGreaterThan(2.5);
+    expect(p.verdict).toBe('atencao');
+    // ΔL* = 1: média baixa, aprovado
+    expect(comparePage(1, grid(50), grid(51)).verdict).toBe('aprovado');
+  });
+
   it('proporções diferentes: LayoutMismatchError', () => {
     const a = gridFromRgba(rgba(40, 40, () => RED), 4);
     const b = gridFromRgba(rgba(40, 60, () => RED), 4);

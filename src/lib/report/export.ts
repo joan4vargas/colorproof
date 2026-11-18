@@ -42,7 +42,7 @@ export function escapeHtml(text: string): string {
 const num = (v: number, digits = 2) => v.toFixed(digits);
 const cmykText = (c: { c: number; m: number; y: number; k: number }) =>
   `${c.c.toFixed(0)} / ${c.m.toFixed(0)} / ${c.y.toFixed(0)} / ${c.k.toFixed(0)}`;
-const labText = (l: Lab) => `${l.l.toFixed(1)} / ${l.a.toFixed(1)} / ${l.b.toFixed(1)}`;
+const labText = (l: Lab) => `${l.l.toFixed(2)} / ${l.a.toFixed(2)} / ${l.b.toFixed(2)}`;
 const pct = (v: number) => `${(v * 100).toFixed(1)}%`;
 const swatch = (rgb: RGB) =>
   `<span class="sw" style="background:rgb(${rgb.r},${rgb.g},${rgb.b})"></span>`;
@@ -52,6 +52,15 @@ const dateText = (d: Date) => d.toISOString().replace('T', ' ').slice(0, 16) + '
 function thresholdsText(t: VerdictThresholds): string {
   return `aprovado até ΔE00 ${num(t.approvedMax, 1)}; atenção até ${num(t.attentionMax, 1)}; reprovado acima`;
 }
+
+/** Fonte dos limites, com ressalvas, para constar em todo laudo (ver docs/DOCUMENTACAO.md, seção 8c). */
+const CRITERIA_HTML = `<h2>De onde vêm os limites</h2>
+<ul>
+<li><strong>3,0 (aprovado):</strong> ΔE*00 máximo dos sólidos de cores primárias e de cores spot na ISO 12647-7:2016 (prova contratual), Tabelas 30 e 31 do Fogra MediaStandard Print 2018.</li>
+<li><strong>5,0:</strong> ΔE*00 máximo de todos os patches e P95 na mesma norma. Na ISO 12647-2:2013 o desvio dos sólidos é normativo em ΔE*ab ≤ 5 (os valores em ΔE*00 dessa tabela, K 5 e C, M, Y 3,5, são só informativos).</li>
+<li><strong>2,5 (média, simulação):</strong> ΔE*00 médio de todos os patches (ISO 12647-7:2016).</li>
+</ul>
+<p class="note">A norma define limites de aprovação; a faixa "atenção", entre 3,0 e 5,0, é interpretação deste projeto. As normas avaliam material impresso e medido com espectrofotômetro; este laudo é uma simulação numérica (ΔE*ab e ΔH*ab são informativos). Fonte consultada: Fogra/bvdm, <em>MediaStandard Print 2018</em>, Tabelas 20, 30 e 31.</p>`;
 
 const STYLE = `
 body{font:14px/1.5 system-ui,'Segoe UI',Roboto,sans-serif;color:#1f2328;max-width:900px;margin:2rem auto;padding:0 1rem}
@@ -129,7 +138,7 @@ export function flowAToHtml(data: FlowAExport, meta: ExportMeta): string {
       const origin = f.source.kind === 'rgb' ? `sRGB ${f.source.rgb.r}, ${f.source.rgb.g}, ${f.source.rgb.b}` : `CMYK ${cmykText(f.source.cmyk)}`;
       const sw = f.source.kind === 'rgb' ? f.source.rgb : labD50ToRgbClipped(f.labSource);
       return `<tr><td>${swatch(sw)}</td><td>${escapeHtml(origin)}</td><td>${pct(f.pixelShare)}</td><td>${labText(f.labSource)}</td>
-<td>${cmykText(f.cmykReproduced)}</td><td>${swatch(labD50ToRgbClipped(f.labRoundTrip))} ${labText(f.labRoundTrip)}</td><td>${num(f.deltaE)}</td><td>${badge(f.verdict)}</td>${
+<td>${cmykText(f.cmykReproduced)}</td><td>${swatch(labD50ToRgbClipped(f.labRoundTrip))} ${labText(f.labRoundTrip)}</td><td>${num(f.deltaE)}</td><td>${num(f.deltaEab)}</td><td>${num(f.deltaH)}</td><td>${badge(f.verdict)}</td>${
         report.path === 'cmyk' ? `<td>${f.screenDeltaE !== undefined ? num(f.screenDeltaE) : ''}</td>` : ''
       }</tr>`;
     })
@@ -147,7 +156,7 @@ ${metaRows([
 ])}
 ${warningsHtml(report.warnings)}
 <h2>Cores dominantes</h2>
-<table><thead><tr><th></th><th>Cor de origem</th><th>Participação</th><th>Lab de origem</th><th>CMYK reproduzido (%)</th><th>Lab após round-trip</th><th>ΔE00</th><th>Veredito</th>${
+<table><thead><tr><th></th><th>Cor de origem</th><th>Participação</th><th>Lab de origem</th><th>CMYK reproduzido (%)</th><th>Lab após round-trip</th><th>ΔE00</th><th>ΔE*ab</th><th>ΔH*ab</th><th>Veredito</th>${
     report.path === 'cmyk' ? '<th>ΔE00 na tela (informativo)</th>' : ''
   }</tr></thead><tbody>${rows}</tbody></table>
 <p class="note">Participação: fração de todos os pixels, papel incluído. ${
@@ -156,13 +165,14 @@ ${warningsHtml(report.warnings)}
       : 'O ΔE00 compara a cor de origem com a que a condição de impressão reproduz (perda de gamut).'
   }</p>
 ${suggestionsHtml(report)}
+${CRITERIA_HTML}
 ${DISCLAIMER}`;
   return page(`Laudo: ${fileName}`, body);
 }
 
 export function flowAToCsv(data: FlowAExport): string {
   const { fileName, report } = data;
-  const head = ['arquivo', 'perfil', 'intent', 'origem', 'participacao_pixels', 'L_origem', 'a_origem', 'b_origem', 'C_reproduzido', 'M_reproduzido', 'Y_reproduzido', 'K_reproduzido', 'deltaE00', 'veredito', 'deltaE00_tela', 'sugestao_sRGB', 'sugestao_C', 'sugestao_M', 'sugestao_Y', 'sugestao_K', 'sugestao_mudanca_deltaE00'];
+  const head = ['arquivo', 'perfil', 'intent', 'origem', 'participacao_pixels', 'L_origem', 'a_origem', 'b_origem', 'C_reproduzido', 'M_reproduzido', 'Y_reproduzido', 'K_reproduzido', 'deltaE00', 'deltaEab', 'deltaHab', 'L_impresso', 'a_impresso', 'b_impresso', 'veredito', 'deltaE00_tela', 'sugestao_sRGB', 'sugestao_C', 'sugestao_M', 'sugestao_Y', 'sugestao_K', 'sugestao_mudanca_deltaE00'];
   const lines = report.findings.map((f) =>
     [
       fileName,
@@ -178,6 +188,11 @@ export function flowAToCsv(data: FlowAExport): string {
       f.cmykReproduced.y,
       f.cmykReproduced.k,
       f.deltaE,
+      f.deltaEab,
+      f.deltaH,
+      f.labRoundTrip.l,
+      f.labRoundTrip.a,
+      f.labRoundTrip.b,
       VERDICT_LABEL[f.verdict],
       f.screenDeltaE ?? '',
       f.suggestion ? `sRGB ${f.suggestion.rgb.r} ${f.suggestion.rgb.g} ${f.suggestion.rgb.b}` : '',
@@ -230,7 +245,8 @@ ${metaRows([
 ])}
 ${warningsHtml(r.warnings)}
 ${pages}
-<p class="note">Cada região é comparada pela cor mais frequente dela. O pior caso é dominado por bordas e informado à parte; as piores regiões aparecem acima com a fração de uniformidade. Regiões que são papel nas duas versões não entram na conta.</p>
+<p class="note">Cada região é comparada pela cor mais frequente dela. O pior caso é dominado por bordas e informado à parte; as piores regiões aparecem acima com a fração de uniformidade. Regiões que são papel nas duas versões não entram na conta. O resultado da página vem do percentil 95; uma média acima de 2,5 impede o "aprovado".</p>
+${CRITERIA_HTML}
 ${DISCLAIMER}`;
   return page(`Comparação: ${referenceName} × ${simulationName}`, body);
 }
@@ -286,6 +302,7 @@ ${metaRows([
 <h2>Cores</h2>
 <table><thead><tr><th>Cor</th><th>Referência</th><th>CMYK recomendado (%)</th><th>Como imprime (Lab)</th><th>ΔE00</th><th>Resultado</th><th>Observação</th></tr></thead><tbody>${lines}</tbody></table>
 <p class="note">O CMYK é calculado pelo perfil indicado (tabela inversa B2A, seguida de uma busca que minimiza o ΔE00 contra a previsão da tabela A2B) e arredondado para inteiros. O valor de referência de cada cor vem da coluna "Referência": o app não distribui a biblioteca Pantone. Cores fora do gamut do CMYK (muitos laranjas, verdes e azuis vivos), metálicas e fluorescentes não são reproduzíveis: o resultado é a melhor aproximação e o ΔE00 mostra o tamanho da perda. O CMYK pode diferir do que o fabricante da biblioteca publica, que usa outra condição de impressão.</p>
+${CRITERIA_HTML}
 ${DISCLAIMER}`;
   return page('Laudo: cores spot para CMYK', body);
 }

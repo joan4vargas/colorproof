@@ -221,3 +221,15 @@ tr:last-child td { border-bottom: 0; }
 .spot-alt-head { display: flex; align-items: center; gap: 8px; }
 .swatch-mini { width: 18px; height: 18px; border-radius: 4px; border: 1px solid rgba(255,255,255,.25); flex: none; }
 .cmyk-big.alt { font-size: 1rem; }
+
+/* Interface enxuta: texto de apoio escondido em "saiba mais" */
+.help { margin-top: 10px; }
+.help > summary { cursor: pointer; color: var(--muted, #9aa3b2); font-size: .9rem; padding: 4px 0; list-style: none; }
+.help > summary::before { content: '+ '; }
+.help[open] > summary::before { content: '– '; }
+.help > summary:hover { text-decoration: underline; }
+.help-body { padding: 6px 0 2px; display: grid; gap: 8px; }
+.verdict-line { display: flex; align-items: center; gap: 12px; margin: 0 0 12px; font-size: 1.05rem; }
+.cmyk-big { font-size: 1.25rem; }
+
+.spot-banner { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }

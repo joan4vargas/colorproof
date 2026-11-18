@@ -1,5 +1,6 @@
 // Formatação e utilidades de arquivo usadas pelas telas.
 
+import type { Verdict } from '../core/verdict';
 export const pct = (v: number) => `${(v * 100).toFixed(1)}%`;
 export const fmtCmyk = (c: { c: number; m: number; y: number; k: number }) =>
   `${c.c.toFixed(0)} / ${c.m.toFixed(0)} / ${c.y.toFixed(0)} / ${c.k.toFixed(0)}`;
@@ -16,3 +17,9 @@ export function inkChanges(ch: { c: number; m: number; y: number; k: number }): 
     .map((k) => `${k.toUpperCase()} ${ch[k] > 0 ? '+' : '−'}${Math.abs(ch[k]).toFixed(0)}`);
   return parts.join(', ');
 }
+
+export const VERDICT_TEXT: Record<Verdict, string> = {
+  aprovado: 'A impressão fica fiel ao arquivo.',
+  atencao: 'Dá para imprimir, mas a cor muda um pouco.',
+  reprovado: 'A cor muda bastante na impressão.',
+};
