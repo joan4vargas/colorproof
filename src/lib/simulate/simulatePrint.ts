@@ -34,6 +34,8 @@ export interface SimulateOptions extends FlowBOptions {
   intent?: RenderingIntent;
   grid?: number;
   scale?: number;
+  /** Página a simular, contando de 1 (padrão 1). */
+  page?: number;
   /** Tamanho máximo da imagem de visualização, em pixels (padrão 1,5 milhão). */
   maxPixels?: number;
   onProgress?: (stage: SimulateStage) => void;
@@ -52,6 +54,8 @@ export interface PrintSimulation {
   /** Comparação por região (grade x grade); null quando não há original RGB. */
   report: FlowBReport | null;
   numPages: number;
+  /** Página mostrada, contando de 1. */
+  page: number;
   intent: RenderingIntent;
   warnings: string[];
   totalMs: number;
@@ -65,7 +69,7 @@ export async function simulatePrint(
   options: SimulateOptions,
 ): Promise<PrintSimulation> {
   const t0 = now();
-  const { profile, intent = 'relative', grid = DEFAULT_GRID, scale = 1.5, maxPixels = 1_500_000 } = options;
+  const { profile, intent = 'relative', grid = DEFAULT_GRID, scale = 1.5, maxPixels = 1_500_000, page: wantedPage = 1 } = options;
   const warnings: string[] = [];
   options.onProgress?.('reading');
 
@@ -74,6 +78,7 @@ export async function simulatePrint(
   let original: Uint8ClampedArray | null = null;
   let cmykData: Uint8ClampedArray | null = null;
   let numPages = 1;
+  let shownPage = 1;
 
   if (input.mime !== 'application/pdf') {
     const bytes =
@@ -88,26 +93,26 @@ export async function simulatePrint(
     let hasCmyk = false;
     try {
       mupdf = await deps.loadMupdf();
-      hasCmyk = inspectPdfColorUsage(mupdf, input.file, 10).hasCmyk;
+      hasCmyk = inspectPdfColorUsage(mupdf, input.file, 30).hasCmyk;
     } catch (e) {
       warnings.push(
         `Não foi possível inspecionar os espaços de cor (${e instanceof Error ? e.message : String(e)}); o arquivo foi lido como RGB.`,
       );
     }
     if (hasCmyk && mupdf) {
-      const r = renderPdfPagesCmyk(mupdf, input.file, { scale, maxPages: 1, maxPixelsPerPage: maxPixels });
+      const r = renderPdfPagesCmyk(mupdf, input.file, { scale, maxPages: 1, firstPage: wantedPage, maxPixelsPerPage: maxPixels });
       numPages = r.numPages;
+      shownPage = r.pages[0].pageNumber;
       ({ width, height } = r.pages[0]);
       cmykData = r.pages[0].data;
     } else {
-      const r = await renderPdfPages(input.file, { ...deps.rgb, scale, maxPages: 1, maxPixelsPerPage: maxPixels });
+      const r = await renderPdfPages(input.file, { ...deps.rgb, scale, maxPages: 1, firstPage: wantedPage, maxPixelsPerPage: maxPixels });
       numPages = r.numPages;
+      shownPage = r.pages[0].pageNumber;
       ({ width, height } = r.pages[0]);
       original = r.pages[0].data;
     }
   }
-  if (numPages > 1) warnings.push(`A simulação mostra só a primeira das ${numPages} páginas.`);
-
   options.onProgress?.('simulating');
   const simulated = cmykData ? profile.cmyk8ToRgba(cmykData, intent) : profile.simulateRgba(original!, intent);
 
@@ -120,6 +125,7 @@ export async function simulatePrint(
       [gridFromRgba({ width, height, data: simulated }, grid)],
       options,
     );
+    for (const p of report.pages) p.pageNumber = shownPage;
   } else {
     warnings.push('O PDF já está em CMYK: a imagem mostra como o perfil reproduz esses valores. Não há versão RGB para comparar.');
   }
@@ -132,6 +138,7 @@ export async function simulatePrint(
     simulated,
     report,
     numPages,
+    page: shownPage,
     intent,
     warnings,
     totalMs: now() - t0,

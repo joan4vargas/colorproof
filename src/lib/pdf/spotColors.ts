@@ -174,7 +174,7 @@ function collectSeparations(resources: Obj | null, out: Map<string, SpotDef>, se
 
 // --- API ---------------------------------------------------------------------------------
 
-export function listSpotColors(mupdf: MuPdf, file: ArrayBuffer | Uint8Array, maxPages = 10): SpotColor[] {
+export function listSpotColors(mupdf: MuPdf, file: ArrayBuffer | Uint8Array, maxPages = 100): SpotColor[] {
   const bytes = file instanceof Uint8Array ? file : new Uint8Array(file);
   const doc = mupdf.Document.openDocument(bytes.slice(), 'application/pdf');
   const pdf = doc.asPDF();

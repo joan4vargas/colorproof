@@ -37,6 +37,8 @@ export interface Workspace {
   simulationError: string | null;
   pickFile: (f: File) => void;
   pickProfile: (f: File) => Promise<void>;
+  /** Mostra outra página do PDF na simulação (contando de 1). */
+  goToPage: (page: number) => Promise<void>;
   cancel: () => void;
   /** Cores spot do PDF aberto. */
   listSpots: () => Promise<SpotColor[]>;
@@ -137,6 +139,33 @@ export function useWorkspace(): Workspace {
     [getClient, run],
   );
 
+  // Mostra outra página do PDF na simulação (a análise das amostras já cobre as páginas lidas).
+  const goToPage = useCallback(
+    async (page: number) => {
+      const f = fileRef.current;
+      const client = getClient();
+      if (!f || !client.profile) return;
+      const id = ++runId.current;
+      setBusy(true);
+      setStage(null);
+      setSimulationError(null);
+      try {
+        const result = await client.simulate(await f.arrayBuffer(), mimeOf(f), { page, onProgress: setStage });
+        if (id !== runId.current) return;
+        setSimulation(result);
+      } catch (e) {
+        if (id !== runId.current || e instanceof AnalysisCancelledError) return;
+        setSimulationError(messageOf(e));
+      } finally {
+        if (id === runId.current) {
+          setBusy(false);
+          setStage(null);
+        }
+      }
+    },
+    [getClient],
+  );
+
   const cancel = useCallback(() => {
     runId.current++;
     clientRef.current?.cancel();
@@ -163,5 +192,5 @@ export function useWorkspace(): Workspace {
       .catch(() => spotsFor.current === file && setFileSpots([]));
   }, [file, busy, listSpots]);
 
-  return { file, fileSpots, profileName, profileError, analysis, simulation, busy, stage, error, simulationError, pickFile, pickProfile, cancel, listSpots, matchSpots };
+  return { file, fileSpots, profileName, profileError, analysis, simulation, busy, stage, error, simulationError, pickFile, pickProfile, goToPage, cancel, listSpots, matchSpots };
 }

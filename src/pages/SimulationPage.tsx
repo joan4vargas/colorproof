@@ -36,6 +36,27 @@ export default function SimulationPage({ ws, openSpots }: { ws: Workspace; openS
               <Pill verdict={page.verdict} big /> <span>{VERDICT_TEXT[page.verdict]}</span>
             </p>
           )}
+          {sim.numPages > 1 && (
+            <div className="page-nav">
+              <button type="button" className="btn" disabled={ws.busy || sim.page <= 1} onClick={() => void ws.goToPage(sim.page - 1)}>
+                Anterior
+              </button>
+              <label className="small">
+                Página{' '}
+                <select value={sim.page} disabled={ws.busy} onChange={(e) => void ws.goToPage(Number(e.target.value))}>
+                  {Array.from({ length: sim.numPages }, (_, i) => (
+                    <option key={i + 1} value={i + 1}>
+                      {i + 1}
+                    </option>
+                  ))}
+                </select>{' '}
+                de {sim.numPages}
+              </label>
+              <button type="button" className="btn" disabled={ws.busy || sim.page >= sim.numPages} onClick={() => void ws.goToPage(sim.page + 1)}>
+                Próxima
+              </button>
+            </div>
+          )}
           <Comparator sim={sim} thresholds={report?.thresholds ?? DEFAULT_THRESHOLDS} />
           {!page && <p className="muted small">PDF em CMYK: veja o resultado por cor na página Amostras.</p>}
         </Card>

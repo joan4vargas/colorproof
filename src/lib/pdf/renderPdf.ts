@@ -38,6 +38,8 @@ export interface RenderOptions {
   scale?: number;
   /** Só as primeiras páginas, para limitar tempo e memória (padrão 10). */
   maxPages?: number;
+  /** Primeira página a renderizar, contando de 1 (padrão 1). */
+  firstPage?: number;
   /** A escala é reduzida se a página passar deste total de pixels (padrão 4 milhões). */
   maxPixelsPerPage?: number;
 }
@@ -60,15 +62,16 @@ export async function renderPdfPages(
   file: ArrayBuffer | Uint8Array,
   options: RenderOptions,
 ): Promise<RenderedPdf> {
-  const { pdfjs, createCanvas, scale = 1.5, maxPages = 10, maxPixelsPerPage = 4_000_000 } = options;
+  const { pdfjs, createCanvas, scale = 1.5, maxPages = 10, firstPage = 1, maxPixelsPerPage = 4_000_000 } = options;
 
   // O pdf.js assume a posse do buffer; copiamos para não invalidar o do chamador.
   const data = new Uint8Array(file instanceof Uint8Array ? file : new Uint8Array(file)).slice();
   const doc = await pdfjs.getDocument({ data }).promise;
   try {
     const pages: RenderedPage[] = [];
-    const last = Math.min(doc.numPages, maxPages);
-    for (let n = 1; n <= last; n++) {
+    const first = Math.min(Math.max(1, Math.floor(firstPage)), doc.numPages);
+    const last = Math.min(doc.numPages, first + maxPages - 1);
+    for (let n = first; n <= last; n++) {
       const page = await doc.getPage(n);
       const base = page.getViewport({ scale });
       const pixels = base.width * base.height;

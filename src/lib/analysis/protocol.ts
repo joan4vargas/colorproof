@@ -26,6 +26,8 @@ export interface CompareParams {
 }
 
 export interface SimulateParams {
+  /** Página a simular, contando de 1. */
+  page?: number;
   grid?: number;
   scale?: number;
   maxPixels?: number;

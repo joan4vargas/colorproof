@@ -44,6 +44,8 @@ export interface CmykRenderOptions {
   /** Pixels por ponto do PDF. Padrão 1,5, como no caminho RGB. */
   scale?: number;
   maxPages?: number;
+  /** Primeira página a renderizar, contando de 1 (padrão 1). */
+  firstPage?: number;
   maxPixelsPerPage?: number;
 }
 
@@ -138,13 +140,14 @@ export function renderPdfPagesCmyk(
   file: ArrayBuffer | Uint8Array,
   options: CmykRenderOptions = {},
 ): RenderedCmykPdf {
-  const { scale = 1.5, maxPages = 10, maxPixelsPerPage = 4_000_000 } = options;
+  const { scale = 1.5, maxPages = 10, firstPage = 1, maxPixelsPerPage = 4_000_000 } = options;
   return withoutIcc(mupdf, () => {
     const doc = openPdf(mupdf, file);
     try {
       const numPages = doc.countPages();
       const pages: RenderedCmykPage[] = [];
-      for (let n = 0; n < Math.min(numPages, maxPages); n++) {
+      const first = Math.min(Math.max(1, Math.floor(firstPage)), Math.max(1, numPages)) - 1;
+      for (let n = first; n < Math.min(numPages, first + maxPages); n++) {
         const page = doc.loadPage(n);
         try {
           const [x0, y0, x1, y1] = page.getBounds();

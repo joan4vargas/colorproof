@@ -78,12 +78,20 @@ export class CmykProfileRequiredError extends Error {
 
 const now = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
+/** Total de pixels lidos em todas as páginas (a escala cai quando o arquivo tem muitas páginas). */
+const TOTAL_PIXEL_BUDGET = 12_000_000;
+
+function noteTruncation(warnings: string[], total: number, analyzed: number): void {
+  if (analyzed < total) warnings.push(`Foram analisadas as ${analyzed} primeiras das ${total} páginas.`);
+}
+
 export async function analyzePdf(
   file: ArrayBuffer | Uint8Array,
   deps: AnalyzePdfDeps,
   options: AnalyzePdfOptions = {},
 ): Promise<PdfAnalysis> {
-  const { profile, intent, k = 8, scale, maxPages = 10, maxPixelsPerPage, onProgress } = options;
+  const { profile, intent, k = 8, scale, maxPages = 30, onProgress } = options;
+  let { maxPixelsPerPage } = options;
   const warnings: string[] = [];
   const t0 = now();
 
@@ -93,6 +101,10 @@ export async function analyzePdf(
   try {
     mupdf = await deps.loadMupdf();
     usage = inspectPdfColorUsage(mupdf, file, maxPages);
+    // Muitas páginas: divide um orçamento total de pixels, para não estourar a memória.
+    if (maxPixelsPerPage === undefined) {
+      maxPixelsPerPage = Math.min(4_000_000, Math.floor(TOTAL_PIXEL_BUDGET / Math.max(1, Math.min(usage.numPages, maxPages))));
+    }
   } catch (e) {
     warnings.push(
       `Não foi possível inspecionar os espaços de cor (${e instanceof Error ? e.message : String(e)}); ` +
@@ -115,6 +127,7 @@ export async function analyzePdf(
     onProgress?.('rendering');
     const rendered = renderPdfPagesCmyk(mupdf, file, { scale, maxPages, maxPixelsPerPage });
     const t2 = now();
+    noteTruncation(warnings, rendered.numPages, rendered.pages.length);
     onProgress?.('clustering');
     const cmyk = extractDominantCmykColors(concatCmykPages(rendered.pages), profile, { k, intent });
     const t3 = now();
@@ -132,6 +145,7 @@ export async function analyzePdf(
   onProgress?.('rendering');
   const rendered = await renderPdfPages(file, { ...deps.rgb, scale, maxPages, maxPixelsPerPage });
   const t2 = now();
+  noteTruncation(warnings, rendered.numPages, rendered.pages.length);
   onProgress?.('clustering');
   const rgb = extractDominantColors(concatPages(rendered.pages), { k });
   const t3 = now();

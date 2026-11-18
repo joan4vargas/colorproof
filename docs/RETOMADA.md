@@ -4,7 +4,7 @@ Este arquivo resume onde o projeto parou e como continuar. A documentação téc
 
 ## Estado do código
 
-Fases 1 a 8 implementadas, 269 testes passando (com os dois perfis). Conferir `git log` para saber o que já foi enviado ao GitHub.
+Fases 1 a 8 implementadas, 276 testes passando (com os dois perfis). Conferir `git log` para saber o que já foi enviado ao GitHub.
 
 | Fase | Situação |
 |---|---|
@@ -20,7 +20,7 @@ Fases 1 a 8 implementadas, 269 testes passando (com os dois perfis). Conferir `g
 
 1. `git clone https://github.com/joan4vargas/colorproof.git`, entrar na pasta e `npm install`.
 2. Baixar os perfis em https://eci.org/doku.php_id=en:downloads.html (`pso-coated_v3.zip` e `eci_offset_2009.zip`) e colocar `PSOcoated_v3.icc` e `ISOcoated_v2_eci.icc` em `public/profiles/`. Os `.icc` não vão para o Git (licença da ECI; `*.icc` no `.gitignore`). Guardar uma cópia deles fora do repositório.
-3. `npm test`: com os dois perfis, 269 passam; sem eles, os testes que dependem dos `.icc` são ignorados.
+3. `npm test`: com os dois perfis, 276 passam; sem eles, os testes que dependem dos `.icc` são ignorados.
 4. `npm run dev` e abrir http://localhost:5173/ para usar a interface (escolher o perfil `.icc` na tela).
 5. Configurar a identidade do Git só neste repositório: `git config user.name "Seu Nome"` e `git config user.email "seu-email"`.
 6. Em PC compartilhado, apagar o login do GitHub no Gerenciador de Credenciais do Windows ao terminar.

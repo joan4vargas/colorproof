@@ -233,3 +233,6 @@ tr:last-child td { border-bottom: 0; }
 .cmyk-big { font-size: 1.25rem; }
 
 .spot-banner { display: flex; align-items: center; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+
+.page-nav { display: flex; align-items: center; gap: 0.75rem; flex-wrap: wrap; margin-bottom: 0.75rem; }
+.page-nav select { font: inherit; background: transparent; color: var(--text); border: 1px solid var(--line); border-radius: 8px; padding: 0.25rem 0.4rem; }
